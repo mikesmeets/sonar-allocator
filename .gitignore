@@ -1,0 +1,16 @@
+# Database
+*.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Sensitive files
+twilio_2FA_recovery_code.txt
+
+# Claude
+.claude/
+
+# Environment
+.env

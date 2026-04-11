@@ -1,0 +1,610 @@
+{% extends "base.html" %}
+{% block content %}
+
+{# ── Header ── #}
+<div class="mb-4">
+  <a href="{{ url_for('admin') }}" class="btn btn-sm btn-outline-secondary mb-3">
+    <i class="bi bi-arrow-left"></i> Back to Dashboard
+  </a>
+
+  {# Date + status + open/close + edit dates button #}
+  <div class="d-flex align-items-center gap-3 flex-wrap">
+    <h3 class="page-title mb-0" id="datepDisplay">{{ race.race_date | fmt_date }}</h3>
+    {% if race.status == 'scheduled' %}
+      <span class="badge bg-warning text-dark fs-6">scheduled</span>
+    {% elif race.status == 'open' %}
+      <span class="badge bg-success fs-6">open</span>
+    {% elif race.status == 'prioritised' %}
+      <span class="badge bg-info text-dark fs-6">prioritised</span>
+    {% elif race.status == 'allocated' %}
+      <span class="badge bg-primary fs-6">allocated</span>
+    {% else %}
+      <span class="badge bg-secondary fs-6">completed</span>
+    {% endif %}
+    {% if race.status == 'scheduled' %}
+      <form method="post" action="{{ url_for('set_race_status', race_id=race.id) }}" class="d-inline">
+        <input type="hidden" name="status" value="open">
+        <button class="btn btn-sm btn-success" type="submit">
+          <i class="bi bi-unlock me-1"></i>Open Submissions
+        </button>
+      </form>
+    {% elif race.status == 'open' %}
+      <form method="post" action="{{ url_for('prioritise_race', race_id=race.id) }}" class="d-inline">
+        <button class="btn btn-sm btn-info text-dark" type="submit">
+          <i class="bi bi-list-ol me-1"></i>Close &amp; Prioritise
+        </button>
+      </form>
+    {% elif race.status == 'prioritised' %}
+      <form method="post" action="{{ url_for('set_race_status', race_id=race.id) }}" class="d-inline">
+        <input type="hidden" name="status" value="open">
+        <button class="btn btn-sm btn-outline-secondary" type="submit"
+                onclick="return confirm('Re-open submissions? This will clear the current priority list.')">
+          <i class="bi bi-arrow-counterclockwise me-1"></i>Re-open
+        </button>
+      </form>
+    {% endif %}
+    {% if race.status != 'completed' %}
+      <button class="btn btn-sm btn-link text-muted p-0" id="datesEditBtn"
+              onclick="startEditDates()" title="Edit dates">
+        <i class="bi bi-pencil"></i>
+      </button>
+    {% endif %}
+  </div>
+
+  {# Notes inline editor #}
+  <form method="post" action="{{ url_for('update_race_notes', race_id=race.id) }}"
+        class="d-flex align-items-center gap-2 mt-1" id="notesForm">
+    <input type="text" name="notes" value="{{ race.notes or '' }}"
+           class="form-control form-control-sm text-muted"
+           style="max-width:320px; border:none; background:transparent; padding-left:0;"
+           placeholder="Add a note…"
+           id="notesInput"
+           readonly>
+    <button type="button" class="btn btn-sm btn-link text-muted p-0" id="notesEditBtn"
+            onclick="startEditNotes()" title="Edit note">
+      <i class="bi bi-pencil"></i>
+    </button>
+    <button type="submit" class="btn btn-sm btn-navy d-none" id="notesSaveBtn">Save</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary d-none" id="notesCancelBtn"
+            onclick="cancelEditNotes()">Cancel</button>
+  </form>
+
+  {# Dates view (normal) #}
+  <div id="datesView" class="mt-2">
+    <small class="text-muted">
+      <i class="bi bi-clock me-1"></i>
+      Submission deadline: <strong>{{ race.deadline | fmt_date }}</strong>
+    </small>
+  </div>
+
+  {# Dates edit form (hidden by default) #}
+  <form method="post" action="{{ url_for('update_race_dates', race_id=race.id) }}"
+        id="datesEditContainer" class="d-none mt-2">
+    <div class="d-flex flex-wrap align-items-end gap-3">
+      <div>
+        <label class="form-label small fw-semibold mb-1">Raceday date</label>
+        <input type="date" name="race_date" id="raceDateInput"
+               class="form-control form-control-sm" value="{{ race.race_date }}"
+               style="max-width:180px;">
+      </div>
+      <div>
+        <label class="form-label small fw-semibold mb-1">
+          Submission deadline
+          <button type="button" class="btn btn-link btn-sm p-0 ms-1 text-muted"
+                  style="font-size:0.75rem; vertical-align:baseline;"
+                  onclick="suggestDeadline()" title="Set to 10 days before raceday">
+            <i class="bi bi-lightbulb"></i> 10 days before
+          </button>
+        </label>
+        <input type="date" name="deadline_date" id="deadlineDateInput"
+               class="form-control form-control-sm" value="{{ race.deadline[:10] }}"
+               style="max-width:180px;">
+      </div>
+      <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-sm btn-navy">Save</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary"
+                onclick="cancelEditDates()">Cancel</button>
+      </div>
+    </div>
+  </form>
+
+  {# Boats #}
+  {% if race.status in ('scheduled', 'open', 'prioritised') %}
+    {# Inline editable form #}
+    <form method="post" action="{{ url_for('update_race_boats', race_id=race.id) }}"
+          class="mt-2" id="boatsForm">
+      <div class="d-flex align-items-center flex-wrap gap-2">
+        <small class="text-muted me-1"><i class="bi bi-sailboat me-1"></i>Available boats:</small>
+        {% for b in range(1, 10) %}
+          <label class="boat-toggle" for="boat_detail_{{ b }}" title="Boat {{ b }}">
+            <input class="boat-check detail-boat-check" type="checkbox"
+                   name="boats" value="{{ b }}"
+                   id="boat_detail_{{ b }}"
+                   {{ 'checked' if b in available_boats else '' }}>
+            <span class="boat-label" style="width:32px;height:32px;font-size:0.85rem;">{{ b }}</span>
+          </label>
+        {% endfor %}
+        <button type="submit" class="btn btn-sm btn-navy ms-1">
+          <i class="bi bi-check-lg me-1"></i>Save
+        </button>
+      </div>
+    </form>
+  {% elif race.status == 'allocated' %}
+    {# Read-only view with edit toggle — changes trigger bump/promote logic #}
+    <div id="boatsView" class="mt-2 d-flex align-items-center flex-wrap gap-1">
+      <small class="text-muted me-1"><i class="bi bi-sailboat me-1"></i>Available boats:</small>
+      {% for b in available_boats %}
+        <span class="badge bg-light text-dark border">{{ b }}</span>
+      {% endfor %}
+      <span class="text-muted small ms-1">({{ available_boats | length }})</span>
+      <button class="btn btn-sm btn-link text-muted p-0 ms-1" onclick="startEditBoats()" title="Edit boats">
+        <i class="bi bi-pencil"></i>
+      </button>
+    </div>
+    <form method="post" action="{{ url_for('update_race_boats', race_id=race.id) }}"
+          id="boatsEditContainer" class="d-none mt-2">
+      <div class="d-flex align-items-center flex-wrap gap-2">
+        <small class="text-muted me-1"><i class="bi bi-sailboat me-1"></i>Available boats:</small>
+        {% for b in range(1, 10) %}
+          <label class="boat-toggle" for="boat_alloc_{{ b }}" title="Boat {{ b }}">
+            <input class="boat-check" type="checkbox"
+                   name="boats" value="{{ b }}"
+                   id="boat_alloc_{{ b }}"
+                   {{ 'checked' if b in available_boats else '' }}>
+            <span class="boat-label" style="width:32px;height:32px;font-size:0.85rem;">{{ b }}</span>
+          </label>
+        {% endfor %}
+        <button type="submit" class="btn btn-sm btn-warning ms-1">
+          <i class="bi bi-check-lg me-1"></i>Update
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="cancelEditBoats()">Cancel</button>
+      </div>
+      <small class="text-muted d-block mt-1">
+        <i class="bi bi-info-circle me-1"></i>
+        Adding boats promotes waitlisted skippers. Removing boats bumps the lowest-priority allocated skippers to the waitlist.
+      </small>
+    </form>
+  {% else %}
+    <small class="text-muted mt-2 d-block">
+      <i class="bi bi-sailboat me-1"></i>
+      Available boats:
+      {% for b in available_boats %}
+        <span class="badge bg-light text-dark border ms-1">{{ b }}</span>
+      {% endfor %}
+      <span class="ms-1">({{ available_boats | length }})</span>
+    </small>
+  {% endif %}
+</div>
+
+<div class="row g-4">
+
+  {# ── Left: Interest list / Priority list ── #}
+  <div class="col-lg-7">
+
+    {% if race.status in ('prioritised', 'allocated', 'completed') and priority_list %}
+    {# Priority order card — shown once priority list has been created #}
+    <div class="card">
+      <div class="card-header navy d-flex justify-content-between align-items-center">
+        <span>
+          <i class="bi bi-list-ol me-2"></i>
+          Allocation Priority Order
+          <span class="badge bg-light text-dark ms-1">{{ priority_list | length }}</span>
+        </span>
+        {% if race.status == 'prioritised' %}
+          <div class="d-flex gap-2">
+            <form method="post" action="{{ url_for('prioritise_race', race_id=race.id) }}">
+              <button class="btn btn-sm btn-outline-secondary" type="submit">
+                <i class="bi bi-arrow-repeat me-1"></i>Re-prioritise
+              </button>
+            </form>
+            <form method="post" action="{{ url_for('allocate_race', race_id=race.id) }}">
+              <button class="btn btn-sm btn-primary fw-semibold" type="submit">
+                <i class="bi bi-sailboat me-1"></i>Assign Boats
+              </button>
+            </form>
+          </div>
+        {% elif race.status == 'allocated' %}
+          <div class="d-flex gap-2">
+            <button class="btn btn-sm btn-outline-secondary" id="manualEditBtn"
+                    onclick="toggleManualEdit()">
+              <i class="bi bi-pencil-square me-1"></i>Edit Boats
+            </button>
+            <form method="post" action="{{ url_for('allocate_race', race_id=race.id) }}">
+              <button class="btn btn-sm btn-warning fw-semibold" type="submit">
+                <i class="bi bi-shuffle me-1"></i>Re-assign
+              </button>
+            </form>
+          </div>
+        {% endif %}
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th style="width:2rem;">#</th>
+              <th>Skipper</th>
+              <th class="text-center">Racedays sailed</th>
+              {% if race.status != 'prioritised' %}
+                <th>{{ 'Boat' if race.status == 'allocated' else 'Result' }}</th>
+                {% if race.status == 'allocated' %}<th></th>{% endif %}
+              {% else %}
+                {% if race.status in ('prioritised', 'allocated') %}<th></th>{% endif %}
+              {% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in priority_list %}
+              <tr {% if race.status != 'prioritised' and not p.boat_number %}class="table-secondary"{% endif %}>
+                <td class="text-muted">{{ p.priority_rank }}</td>
+                <td class="fw-semibold">
+                  {{ p.name }}
+                  {% if p.is_bumped %}
+                    <span class="badge bg-danger ms-1"
+                          style="font-size:0.6rem; vertical-align:middle;"
+                          title="Bumped from allocation when a boat was removed">bumped</span>
+                  {% endif %}
+                  {% if p.is_late %}
+                    <span class="badge bg-warning text-dark ms-1"
+                          style="font-size:0.6rem; vertical-align:middle;"
+                          title="Joined after initial prioritisation">late</span>
+                  {% endif %}
+                </td>
+                <td class="text-center">
+                  <span class="badge bg-light text-dark border">{{ p.sailed }}</span>
+                </td>
+                {% if race.status == 'prioritised' %}
+                  <td class="text-end">
+                    <form method="post"
+                          action="{{ url_for('admin_remove_interest', race_id=race.id, skipper_id=p.id) }}"
+                          onsubmit="return confirm('Remove {{ p.name }} from the priority list?')">
+                      <button class="btn btn-sm btn-outline-danger" title="Remove skipper">
+                        <i class="bi bi-x"></i>
+                      </button>
+                    </form>
+                  </td>
+                {% elif race.status == 'allocated' %}
+                  <td>
+                    {# Static view (default) #}
+                    <span class="boat-edit-static">
+                      {% if p.boat_number %}
+                        <span class="boat-badge" style="width:28px;height:28px;font-size:0.8rem;">{{ p.boat_number }}</span>
+                      {% else %}
+                        <span class="badge bg-secondary">Unassigned</span>
+                      {% endif %}
+                    </span>
+                    {# Edit form (hidden until Edit Boats toggled) #}
+                    <form method="post" action="{{ url_for('set_boat', race_id=race.id) }}"
+                          class="d-none boat-edit-form align-items-center gap-1">
+                      <input type="hidden" name="skipper_id" value="{{ p.id }}">
+                      <select name="boat_number" class="form-select form-select-sm" style="width:auto;">
+                        <option value="">— none —</option>
+                        {% for b in available_boats %}
+                          {% set taken_by = boat_assignments.get(b) %}
+                          <option value="{{ b }}"
+                            {{ 'selected' if p.boat_number == b else '' }}
+                            {{ 'disabled' if taken_by and taken_by != p.id else '' }}>
+                            Boat {{ b }}{{ ' (taken)' if taken_by and taken_by != p.id else '' }}
+                          </option>
+                        {% endfor %}
+                      </select>
+                      <button type="submit" class="btn btn-sm btn-navy px-2" title="Save">
+                        <i class="bi bi-check-lg"></i>
+                      </button>
+                    </form>
+                  </td>
+                  <td class="text-end">
+                    <form method="post"
+                          action="{{ url_for('admin_remove_interest', race_id=race.id, skipper_id=p.id) }}"
+                          onsubmit="return confirm('Remove {{ p.name }} from this allocated raceday? Their boat will be freed up.')">
+                      <button class="btn btn-sm btn-outline-danger" title="Remove skipper">
+                        <i class="bi bi-x"></i>
+                      </button>
+                    </form>
+                  </td>
+                {% else %}
+                  <td class="text-center">
+                    {% if p.boat_number %}
+                      <span class="boat-badge" style="width:28px;height:28px;font-size:0.8rem;">{{ p.boat_number }}</span>
+                    {% else %}
+                      <span class="badge bg-secondary">Waitlisted</span>
+                    {% endif %}
+                  </td>
+                {% endif %}
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if race.status in ('prioritised', 'allocated') and not_submitted %}
+        <div class="card-footer bg-light">
+          <form method="post" action="{{ url_for('admin_add_interest', race_id=race.id) }}"
+                class="row g-2 align-items-center">
+            <div class="col">
+              <select name="skipper_id" class="form-select form-select-sm">
+                {% for sk in not_submitted %}
+                  <option value="{{ sk.id }}">{{ sk.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-auto">
+              <button type="submit" class="btn btn-sm btn-navy">
+                <i class="bi bi-plus"></i> Add to List
+              </button>
+            </div>
+          </form>
+        </div>
+      {% endif %}
+    </div>
+
+    {% else %}
+    {# Interest list — shown while race is scheduled/open #}
+    <div class="card">
+      <div class="card-header navy d-flex justify-content-between align-items-center">
+        <span>
+          <i class="bi bi-hand-index-thumb me-2"></i>
+          Submitted Interest
+          <span class="badge bg-light text-dark ms-1">{{ interested | length }}</span>
+        </span>
+        {% if race.status == 'open' and interested %}
+          <form method="post" action="{{ url_for('prioritise_race', race_id=race.id) }}">
+            <button class="btn btn-sm btn-info text-dark fw-semibold" type="submit">
+              <i class="bi bi-list-ol me-1"></i>Close &amp; Prioritise
+            </button>
+          </form>
+        {% endif %}
+      </div>
+
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th style="width:2rem;">#</th>
+              <th>Skipper</th>
+              <th class="text-center">Racedays sailed</th>
+              <th>Submitted</th>
+              {% if race.status != 'completed' %}<th></th>{% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for sk in interested %}
+              <tr {% if loop.index > 9 %}class="table-warning"{% endif %}>
+                <td class="text-muted">{{ loop.index }}</td>
+                <td class="fw-semibold">
+                  {{ sk.name }}
+                  {% if loop.index > 9 %}
+                    <span class="badge bg-secondary ms-1" style="font-size:0.65rem;">waitlisted</span>
+                  {% endif %}
+                </td>
+                <td class="text-center">
+                  <span class="badge bg-light text-dark border">{{ sk.sailed }}</span>
+                </td>
+                <td class="text-muted small">{{ sk.submitted_at[:16] }}</td>
+                {% if race.status != 'completed' %}
+                  <td class="text-end">
+                    <form method="post"
+                          action="{{ url_for('admin_remove_interest', race_id=race.id, skipper_id=sk.id) }}">
+                      <button class="btn btn-sm btn-outline-danger" title="Remove interest">
+                        <i class="bi bi-x"></i>
+                      </button>
+                    </form>
+                  </td>
+                {% endif %}
+              </tr>
+            {% else %}
+              <tr>
+                <td colspan="5" class="text-center text-muted py-4">
+                  No interest submitted yet.
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {# Add interest manually — only while open #}
+      {% if race.status in ('scheduled', 'open') and not_submitted %}
+        <div class="card-footer bg-light">
+          <form method="post" action="{{ url_for('admin_add_interest', race_id=race.id) }}"
+                class="row g-2 align-items-center">
+            <div class="col">
+              <select name="skipper_id" class="form-select form-select-sm">
+                {% for sk in not_submitted %}
+                  <option value="{{ sk.id }}">{{ sk.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-auto">
+              <button type="submit" class="btn btn-sm btn-navy">
+                <i class="bi bi-plus"></i> Add Interest
+              </button>
+            </div>
+          </form>
+        </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+  </div>
+
+  {# ── Right: Allocations ── #}
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-header navy d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-sailboat-fill me-2"></i>Boat Allocations</span>
+        {% if race.status == 'allocated' %}
+          <div class="d-flex gap-2">
+            <form method="post" action="{{ url_for('unallocate_race', race_id=race.id) }}"
+                  onsubmit="return confirm('Clear boat assignments and return to prioritised? The priority list will be kept.')">
+              <button class="btn btn-sm btn-outline-secondary" type="submit">
+                <i class="bi bi-arrow-counterclockwise me-1"></i>Unallocate
+              </button>
+            </form>
+            <form method="post" action="{{ url_for('complete_race', race_id=race.id) }}"
+                  onsubmit="return confirm('Mark raceday as completed? This records results and updates rotation history.')">
+              <button class="btn btn-sm btn-success" type="submit">
+                <i class="bi bi-check-circle me-1"></i>Complete Raceday
+              </button>
+            </form>
+          </div>
+        {% endif %}
+      </div>
+
+      {% if race.status == 'prioritised' %}
+        <div class="card-body text-center text-muted py-4">
+          <i class="bi bi-list-ol" style="font-size:2rem; opacity:0.3;"></i>
+          <p class="mt-2 mb-0">Priority list set — no boats assigned yet.</p>
+          <small>Click <strong>Assign Boats</strong> in the priority list to allocate.</small>
+        </div>
+      {% elif allocations %}
+        <div class="list-group list-group-flush">
+          {% for a in allocations %}
+            <div class="list-group-item d-flex align-items-center gap-3 py-2">
+              <span class="boat-badge">{{ a.boat_number }}</span>
+              <span class="fw-semibold">{{ a.name }}</span>
+            </div>
+          {% endfor %}
+        </div>
+
+        {% if waitlisted %}
+          <div class="card-footer bg-light">
+            <small class="fw-semibold text-muted d-block mb-2">
+              <i class="bi bi-hourglass-split me-1"></i>Waitlisted:
+            </small>
+            {% for sk in waitlisted %}
+              <div class="d-flex align-items-center gap-2 mb-1">
+                <span class="badge {{ 'bg-danger' if sk.id in bumped_ids else 'bg-secondary' }}">{{ sk.name }}</span>
+                {% if sk.id in bumped_ids %}
+                  <span class="badge bg-danger opacity-75" style="font-size:0.6rem;">bumped</span>
+                {% endif %}
+                {% if race.status == 'allocated' %}
+                  <form method="post"
+                        action="{{ url_for('admin_remove_interest', race_id=race.id, skipper_id=sk.id) }}"
+                        onsubmit="return confirm('Remove {{ sk.name }} from the waitlist?')">
+                    <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Remove" style="line-height:1.4;">
+                      <i class="bi bi-x"></i>
+                    </button>
+                  </form>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+      {% else %}
+        <div class="card-body text-center text-muted py-4">
+          <i class="bi bi-sailboat" style="font-size:2rem; opacity:0.3;"></i>
+          <p class="mt-2 mb-0">No boats allocated yet.</p>
+          <small>Add skippers to the interest list, then close &amp; prioritise.</small>
+        </div>
+      {% endif %}
+    </div>
+
+    {% if race.status == 'prioritised' %}
+      <div class="alert alert-info mt-3 py-2 small">
+        <i class="bi bi-sailboat me-1"></i>
+        Priority list is set. Click <strong>Assign Boats</strong> to allocate boats.
+      </div>
+    {% elif race.status == 'allocated' %}
+      {% if waitlisted %}
+        <div class="alert alert-warning mt-3 py-2 small">
+          <i class="bi bi-person-plus me-1"></i>
+          <strong>{{ waitlisted | length }} skipper{{ 's' if waitlisted | length != 1 else '' }}</strong>
+          on the waitlist — re-assign boats to include them if capacity allows.
+        </div>
+      {% else %}
+        <div class="alert alert-info mt-3 py-2 small">
+          <i class="bi bi-check-circle me-1"></i>
+          All skippers allocated. Complete the raceday when ready.
+        </div>
+      {% endif %}
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Notes editor ───────────────────────────────────────────────────────────
+const notesInput     = document.getElementById('notesInput');
+const notesEditBtn   = document.getElementById('notesEditBtn');
+const notesSaveBtn   = document.getElementById('notesSaveBtn');
+const notesCancelBtn = document.getElementById('notesCancelBtn');
+let originalNotes    = notesInput.value;
+
+function startEditNotes() {
+  originalNotes = notesInput.value;
+  notesInput.removeAttribute('readonly');
+  notesInput.style.background = '';
+  notesInput.classList.add('border');
+  notesInput.focus();
+  notesEditBtn.classList.add('d-none');
+  notesSaveBtn.classList.remove('d-none');
+  notesCancelBtn.classList.remove('d-none');
+}
+function cancelEditNotes() {
+  notesInput.value = originalNotes;
+  notesInput.setAttribute('readonly', '');
+  notesInput.style.background = 'transparent';
+  notesInput.classList.remove('border');
+  notesEditBtn.classList.remove('d-none');
+  notesSaveBtn.classList.add('d-none');
+  notesCancelBtn.classList.add('d-none');
+}
+
+// ── Dates editor ───────────────────────────────────────────────────────────
+const datesEditBtn       = document.getElementById('datesEditBtn');
+const datesView          = document.getElementById('datesView');
+const datesEditContainer = document.getElementById('datesEditContainer');
+
+function startEditDates() {
+  datesView.classList.add('d-none');
+  datesEditContainer.classList.remove('d-none');
+  if (datesEditBtn) datesEditBtn.classList.add('d-none');
+}
+function cancelEditDates() {
+  datesEditContainer.classList.add('d-none');
+  datesView.classList.remove('d-none');
+  if (datesEditBtn) datesEditBtn.classList.remove('d-none');
+}
+// ── Manual boat edit toggle ─────────────────────────────────────────────────
+let manualEditOn = false;
+function toggleManualEdit() {
+  manualEditOn = !manualEditOn;
+  document.querySelectorAll('.boat-edit-static').forEach(el => el.classList.toggle('d-none', manualEditOn));
+  document.querySelectorAll('.boat-edit-form').forEach(el => {
+    el.classList.toggle('d-none', !manualEditOn);
+    el.classList.toggle('d-flex', manualEditOn);
+  });
+  const btn = document.getElementById('manualEditBtn');
+  if (btn) {
+    btn.classList.toggle('btn-outline-secondary', !manualEditOn);
+    btn.classList.toggle('btn-primary', manualEditOn);
+    btn.innerHTML = manualEditOn
+      ? '<i class="bi bi-x-lg me-1"></i>Done'
+      : '<i class="bi bi-pencil-square me-1"></i>Edit Boats';
+  }
+}
+
+// ── Boats edit toggle (allocated races) ────────────────────────────────────
+function startEditBoats() {
+  document.getElementById('boatsView').classList.add('d-none');
+  document.getElementById('boatsEditContainer').classList.remove('d-none');
+}
+function cancelEditBoats() {
+  document.getElementById('boatsEditContainer').classList.add('d-none');
+  document.getElementById('boatsView').classList.remove('d-none');
+}
+
+function suggestDeadline() {
+  const dateVal = document.getElementById('raceDateInput').value;
+  if (!dateVal) return;
+  const d = new Date(dateVal + 'T12:00:00');
+  d.setDate(d.getDate() - 10);
+  const yyyy = d.getFullYear();
+  const mm   = String(d.getMonth() + 1).padStart(2, '0');
+  const dd   = String(d.getDate()).padStart(2, '0');
+  document.getElementById('deadlineDateInput').value = `${yyyy}-${mm}-${dd}`;
+}
+</script>
+{% endblock %}

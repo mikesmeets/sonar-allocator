@@ -1,0 +1,273 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-start mb-4">
+  <div>
+    <h3 class="page-title mb-0">Welcome, {{ skipper.name }}</h3>
+    <p class="text-muted mt-1 mb-0">
+      You've sailed <strong>{{ sailed }}</strong> raceday{{ 's' if sailed != 1 else '' }} in this fleet.
+    </p>
+  </div>
+</div>
+
+{% if skipper.was_bumped %}
+  <div class="alert alert-warning d-flex align-items-center gap-2 mb-4" role="alert">
+    <i class="bi bi-star-fill text-warning fs-5"></i>
+    <div>
+      <strong>You have priority on your next allocation.</strong>
+      You were bumped from a previous raceday when a boat became unavailable.
+      You'll be placed at the top of the priority list next time you sign up.
+    </div>
+  </div>
+{% endif %}
+
+{% if skipper.withdrawal_count >= 2 %}
+  <div class="alert alert-danger d-flex align-items-center gap-2 mb-4" role="alert">
+    <i class="bi bi-exclamation-triangle-fill fs-5"></i>
+    <div>
+      <strong>You have been deprioritised.</strong>
+      You have withdrawn from {{ skipper.withdrawal_count }} assigned raceday{{ 's' if skipper.withdrawal_count != 1 else '' }}.
+      You will be placed at the bottom of the priority list for future allocations.
+    </div>
+  </div>
+{% elif skipper.withdrawal_count == 1 %}
+  <div class="alert alert-warning d-flex align-items-center gap-2 mb-4" role="alert">
+    <i class="bi bi-exclamation-circle fs-5"></i>
+    <div>
+      <strong>Withdrawal on record.</strong>
+      You have withdrawn from 1 assigned raceday.
+      A second withdrawal will result in deprioritisation.
+    </div>
+  </div>
+{% endif %}
+
+{# ── Upcoming Racedays ── #}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h5 class="fw-semibold mb-0">Upcoming Racedays</h5>
+  <div class="btn-group btn-group-sm" role="group">
+    <button type="button" class="btn btn-outline-secondary active" id="skListBtn"
+            onclick="skShowView('list')">
+      <i class="bi bi-list-ul"></i> List
+    </button>
+    <button type="button" class="btn btn-outline-secondary" id="skCalBtn"
+            onclick="skShowView('cal')">
+      <i class="bi bi-calendar3"></i> Calendar
+    </button>
+  </div>
+</div>
+
+<div id="skCalendarView" class="card p-3 mb-3 d-none"></div>
+
+<div id="skListView">
+{% if race_data %}
+  {% for rd in race_data %}
+    <div class="card mb-3">
+      <div class="card-body py-3">
+        <div class="row align-items-center g-2">
+
+          {# Date + notes #}
+          <div class="col-12 col-md-3">
+            <div class="fw-semibold">
+              <i class="bi bi-calendar-event text-muted me-1"></i>
+              {{ rd.race.race_date | fmt_date }}
+            </div>
+            {% if rd.race.notes %}
+              <small class="text-muted">{{ rd.race.notes }}</small>
+            {% endif %}
+          </div>
+
+          {# Deadline / availability #}
+          <div class="col-12 col-md-3">
+            {% if rd.race.status == 'scheduled' %}
+              <small class="text-muted d-block">Submissions open soon</small>
+              <span class="text-warning fw-semibold">Not yet open</span>
+            {% elif rd.race.status in ('prioritised', 'allocated') and rd.boat %}
+              <small class="text-muted d-block">Raceday date</small>
+              <span class="fw-semibold">{{ rd.race.race_date | fmt_date }}</span>
+            {% elif rd.race.status in ('prioritised', 'allocated') %}
+              <small class="text-muted d-block">Registration closed</small>
+              <span class="text-muted fw-semibold">Priority list set</span>
+            {% else %}
+              <small class="text-muted d-block">Submit interest by</small>
+              <span class="{{ 'text-danger' if rd.past_deadline else 'text-success' }} fw-semibold">
+                {{ rd.race.deadline | fmt_date }}
+                {% if rd.past_deadline %}
+                  <span class="badge bg-secondary ms-1" style="font-size:0.7rem;">Closed</span>
+                {% endif %}
+              </span>
+            {% endif %}
+          </div>
+
+          {# Status #}
+          <div class="col-12 col-md-3">
+            {% if rd.boat %}
+              <span class="badge bg-success fs-6 px-3 py-2">
+                <i class="bi bi-sailboat-fill me-1"></i> Boat #{{ rd.boat }}
+              </span>
+            {% elif rd.race.status == 'scheduled' %}
+              <span class="badge bg-warning text-dark">Submissions not open yet</span>
+            {% elif rd.race.status in ('prioritised', 'allocated') and rd.submitted %}
+              {% if rd.race.status == 'prioritised' %}
+                {# No boats assigned yet — compare rank to available boat count #}
+                {% if rd.priority_rank and rd.priority_rank <= rd.spare_boats %}
+                  <span class="badge bg-success fs-6 px-3 py-2">
+                    <i class="bi bi-check-circle me-1"></i> You're in — boat TBA
+                  </span>
+                {% elif rd.priority_rank %}
+                  {% set wl = rd.priority_rank - rd.spare_boats %}
+                  <span class="badge bg-secondary fs-6 px-3 py-2">
+                    <i class="bi bi-hourglass-split me-1"></i>
+                    {% if wl == 1 %}Next on waitlist{% else %}{{ wl - 1 }} ahead of you on waitlist{% endif %}
+                  </span>
+                {% else %}
+                  <span class="badge bg-secondary fs-6 px-3 py-2">On waitlist</span>
+                {% endif %}
+              {% else %}
+                {# Allocated — use waitlist position among unassigned skippers #}
+                {% if rd.waitlist_position == 1 %}
+                  <span class="badge bg-success fs-6 px-3 py-2">
+                    <i class="bi bi-arrow-up-circle me-1"></i> Next to get a boat
+                  </span>
+                {% elif rd.waitlist_position %}
+                  <span class="badge bg-secondary fs-6 px-3 py-2">
+                    <i class="bi bi-hourglass-split me-1"></i> {{ rd.waitlist_position - 1 }} ahead of you
+                  </span>
+                {% else %}
+                  <span class="badge bg-secondary fs-6 px-3 py-2">On waitlist</span>
+                {% endif %}
+              {% endif %}
+            {% elif rd.race.status in ('prioritised', 'allocated') and not rd.submitted %}
+              {% if rd.spare_boats > 0 %}
+                <span class="text-success small fw-semibold">
+                  <i class="bi bi-sailboat me-1"></i>{{ rd.spare_boats }} boat{{ 's' if rd.spare_boats != 1 else '' }} available
+                </span>
+              {% else %}
+                <span class="text-muted small">Waitlist only</span>
+              {% endif %}
+            {% elif rd.submitted %}
+              <span class="badge bg-info text-dark fs-6 px-3 py-2">
+                <i class="bi bi-check2-circle me-1"></i> Interest submitted
+              </span>
+            {% elif rd.past_deadline %}
+              <span class="text-muted fst-italic small">Deadline passed — not submitted</span>
+            {% else %}
+              <span class="text-muted small">Not yet submitted</span>
+            {% endif %}
+          </div>
+
+          {# Action button #}
+          <div class="col-12 col-md-3 text-md-end">
+            {% if rd.race.status == 'open' and not rd.past_deadline and not rd.boat %}
+              {% if rd.submitted %}
+                <form method="post" action="{{ url_for('withdraw_interest', race_id=rd.race.id) }}">
+                  <button class="btn btn-sm btn-outline-secondary" type="submit">
+                    <i class="bi bi-x-circle"></i> Withdraw
+                  </button>
+                </form>
+              {% else %}
+                <form method="post" action="{{ url_for('submit_interest', race_id=rd.race.id) }}">
+                  <button class="btn btn-sm btn-navy" type="submit">
+                    <i class="bi bi-hand-thumbs-up"></i> Submit Interest
+                  </button>
+                </form>
+              {% endif %}
+            {% elif rd.race.status in ('prioritised', 'allocated') and not rd.submitted and not rd.boat %}
+              <form method="post" action="{{ url_for('join_late', race_id=rd.race.id) }}">
+                <button class="btn btn-sm btn-navy" type="submit">
+                  {% if rd.spare_boats > 0 %}
+                    <i class="bi bi-sailboat-fill"></i> Join Race
+                  {% else %}
+                    <i class="bi bi-hourglass-split"></i> Join Waitlist
+                  {% endif %}
+                </button>
+              </form>
+            {% elif rd.race.status == 'allocated' and rd.boat %}
+              <form method="post" action="{{ url_for('withdraw_allocation', race_id=rd.race.id) }}"
+                    onsubmit="return confirm('{% if skipper.withdrawal_count >= 1 %}Warning: this is your 2nd withdrawal and will result in deprioritisation. Withdraw anyway?{% else %}Withdraw from this raceday? Note: a 2nd withdrawal will result in deprioritisation.{% endif %}')">
+                <button class="btn btn-sm btn-outline-danger" type="submit">
+                  <i class="bi bi-x-circle"></i> Withdraw
+                </button>
+              </form>
+            {% endif %}
+          </div>
+
+        </div>
+      </div>
+    </div>
+  {% endfor %}
+{% else %}
+  <div class="alert alert-info">
+    <i class="bi bi-info-circle me-2"></i>No upcoming racedays are scheduled yet.
+  </div>
+{% endif %}
+</div>{# /skListView #}
+
+{# ── Past Racedays ── #}
+{% if completed_data %}
+  <h5 class="fw-semibold mt-5 mb-3">Past Racedays</h5>
+  <div class="card">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>Date</th>
+            <th>Notes</th>
+            <th>Result</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for cd in completed_data %}
+            <tr>
+              <td class="fw-semibold">{{ cd.race.race_date | fmt_date }}</td>
+              <td class="text-muted small">{{ cd.race.notes or '—' }}</td>
+              <td>
+                {% if cd.boat %}
+                  <span class="boat-badge" style="width:30px;height:30px;font-size:0.85rem;">{{ cd.boat }}</span>
+                {% else %}
+                  <span class="text-muted fst-italic small">Did not participate</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const _skRaces = [
+  {% for rd in race_data %}
+  { date: {{ rd.race.race_date | tojson }}, status: {{ rd.race.status | tojson }}, id: {{ rd.race.id }},
+    boat: {{ rd.boat | tojson }}, submitted: {{ rd.submitted | tojson }} },
+  {% endfor %}
+  {% for cd in completed_data %}
+  { date: {{ cd.race.race_date | tojson }}, status: 'completed', id: {{ cd.race.id }},
+    boat: {{ cd.boat | tojson }}, submitted: {{ (cd.boat is not none) | tojson }} },
+  {% endfor %}
+];
+let _skCalInited = false;
+
+function skShowView(view) {
+  const calDiv  = document.getElementById('skCalendarView');
+  const listDiv = document.getElementById('skListView');
+  const calBtn  = document.getElementById('skCalBtn');
+  const listBtn = document.getElementById('skListBtn');
+  if (view === 'cal') {
+    calDiv.classList.remove('d-none');
+    listDiv.classList.add('d-none');
+    calBtn.classList.add('active');
+    listBtn.classList.remove('active');
+    if (!_skCalInited) { initCalendar('skCalendarView', _skRaces, 'skipper'); _skCalInited = true; }
+  } else {
+    listDiv.classList.remove('d-none');
+    calDiv.classList.add('d-none');
+    listBtn.classList.add('active');
+    calBtn.classList.remove('active');
+  }
+}
+</script>
+{% endblock %}

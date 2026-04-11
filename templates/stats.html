@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h3 class="page-title mb-0">Boat Rotation Stats</h3>
+    <p class="text-muted mt-1 mb-0">
+      How many times each skipper has sailed each boat.
+      The allocator avoids repeats — yellow cells flag overuse.
+    </p>
+  </div>
+  <a href="{{ url_for('admin') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i> Dashboard
+  </a>
+</div>
+
+{% if skippers %}
+  <div class="card">
+    <div class="table-responsive">
+      <table class="table table-bordered table-hover align-middle mb-0 text-center">
+        <thead style="background: var(--navy); color: white;">
+          <tr>
+            <th class="text-start" style="min-width:130px;">Skipper</th>
+            {% for b in range(1, fleet_size + 1) %}
+              <th>Boat {{ b }}</th>
+            {% endfor %}
+            <th>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for sk in skippers %}
+            {% set usage = matrix[sk.id] %}
+            {% set total = namespace(val=0) %}
+            {% for b in range(1, fleet_size + 1) %}
+              {% set total.val = total.val + usage[b] %}
+            {% endfor %}
+            <tr>
+              <td class="text-start fw-semibold">{{ sk.name }}</td>
+              {% for b in range(1, fleet_size + 1) %}
+                {% set count = usage[b] %}
+                <td class="
+                  {% if count == 0 %}text-muted
+                  {% elif count >= 3 %}table-warning fw-semibold
+                  {% elif count >= 2 %}table-light
+                  {% endif %}">
+                  {{ count if count > 0 else '—' }}
+                </td>
+              {% endfor %}
+              <td class="fw-bold">{{ total.val }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="card-footer bg-light d-flex gap-3 flex-wrap small text-muted">
+      <span><span class="badge bg-warning text-dark">Yellow</span> = used 3+ times (allocator will deprioritise)</span>
+      <span><span class="text-muted">—</span> = never sailed this boat</span>
+    </div>
+  </div>
+{% else %}
+  <div class="alert alert-info">
+    <i class="bi bi-info-circle me-2"></i>No skippers yet. Add skippers from the admin dashboard.
+  </div>
+{% endif %}
+
+{% endblock %}

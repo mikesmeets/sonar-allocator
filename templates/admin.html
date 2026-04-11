@@ -1,0 +1,370 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h3 class="page-title mb-0">Admin Dashboard</h3>
+  <a href="{{ url_for('stats') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-grid-3x3"></i> Rotation Stats
+  </a>
+</div>
+
+<div class="row g-4">
+
+  {# ── Left column: Races ── #}
+  <div class="col-lg-8">
+
+    {# Create Race #}
+    <div class="card mb-4">
+      <div class="card-header navy">
+        <i class="bi bi-plus-circle me-2"></i>Create New Raceday
+      </div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('create_race') }}">
+          <div class="row g-3 align-items-end mb-3">
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Date <span class="text-muted fw-normal">(Saturday)</span></label>
+              <input type="date" name="race_date" class="form-control" required>
+            </div>
+            <div class="col-md-8">
+              <label class="form-label fw-semibold">Notes <span class="text-muted fw-normal">(optional)</span></label>
+              <input type="text" name="notes" class="form-control" placeholder="e.g. Series 1 Race 3">
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">
+              Available Boats
+              <span class="text-muted fw-normal small ms-1">— uncheck any boats that won't be racing</span>
+            </label>
+            <div class="d-flex flex-wrap gap-2">
+              {% for b in range(1, 10) %}
+                <label class="boat-toggle" for="boat_create_{{ b }}" title="Boat {{ b }}">
+                  <input class="boat-check" type="checkbox"
+                         name="boats" value="{{ b }}"
+                         id="boat_create_{{ b }}" checked>
+                  <span class="boat-label">{{ b }}</span>
+                </label>
+              {% endfor %}
+            </div>
+            <div class="mt-2">
+              <button type="button" class="btn btn-sm btn-outline-secondary"
+                      onclick="setAllBoats(true)">Select all</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary ms-1"
+                      onclick="setAllBoats(false)">Clear all</button>
+            </div>
+          </div>
+
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" name="open_now" id="open_now">
+            <label class="form-check-label" for="open_now">
+              Open submissions immediately
+              <span class="text-muted fw-normal small">(leave unchecked to keep as scheduled)</span>
+            </label>
+          </div>
+
+          <button type="submit" class="btn btn-navy">
+            <i class="bi bi-calendar-plus"></i> Create Raceday
+          </button>
+        </form>
+        <small class="text-muted mt-3 d-block">
+          <i class="bi bi-info-circle"></i>
+          Submission deadline is automatically set to 10 days before raceday (11:59 PM).
+        </small>
+      </div>
+    </div>
+
+    {# Races table #}
+    <div class="card">
+      <div class="card-header navy d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-calendar3 me-2"></i>All Racedays</span>
+        <div class="btn-group btn-group-sm" role="group">
+          <button type="button" class="btn btn-outline-light active" id="adminListBtn"
+                  onclick="adminShowView('list')">
+            <i class="bi bi-list-ul"></i> List
+          </button>
+          <button type="button" class="btn btn-outline-light" id="adminCalBtn"
+                  onclick="adminShowView('cal')">
+            <i class="bi bi-calendar3"></i> Calendar
+          </button>
+        </div>
+      </div>
+      <div id="adminCalendarView" class="p-3 d-none">
+        {# populated by JS #}
+      </div>
+      <div id="adminListView" class="table-responsive">
+        <table class="table table-hover align-middle mb-0" id="racesTable">
+          <thead class="table-light">
+            <tr>
+              <th class="sortable" data-col="0">Date <span class="sort-icon">↕</span></th>
+              <th>Notes</th>
+              <th class="sortable" data-col="2">Deadline <span class="sort-icon">↕</span></th>
+              <th class="sortable" data-col="3">Status <span class="sort-icon">↕</span></th>
+              <th class="text-center sortable" data-col="4">Interest <span class="sort-icon">↕</span></th>
+              <th class="text-center sortable" data-col="5">Available <span class="sort-icon">↕</span></th>
+              <th class="text-center sortable" data-col="6">Allocated <span class="sort-icon">↕</span></th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for rd in race_data %}
+              <tr>
+                <td class="fw-semibold">{{ rd.race.race_date | fmt_date }}</td>
+                <td class="text-muted small">{{ rd.race.notes or '—' }}</td>
+                <td class="small">{{ rd.race.deadline | fmt_date }}</td>
+                <td>
+                  {% if rd.race.status == 'scheduled' %}
+                    <span class="badge bg-warning text-dark">scheduled</span>
+                  {% elif rd.race.status == 'open' %}
+                    <span class="badge bg-success">open</span>
+                  {% elif rd.race.status == 'prioritised' %}
+                    <span class="badge bg-info text-dark">prioritised</span>
+                  {% elif rd.race.status == 'allocated' %}
+                    <span class="badge bg-primary">allocated</span>
+                    {% if rd.needs_rerun %}
+                      <span class="badge bg-warning text-dark ms-1" title="Skippers waiting — re-run allocation">
+                        <i class="bi bi-exclamation-triangle-fill"></i> re-run
+                      </span>
+                    {% endif %}
+                  {% else %}
+                    <span class="badge bg-secondary">completed</span>
+                  {% endif %}
+                </td>
+                <td class="text-center">{{ rd.interest_count }}</td>
+                <td class="text-center">{{ rd.race.available_boats.split(',')|length if rd.race.available_boats else 9 }}</td>
+                <td class="text-center">{{ rd.alloc_count }}</td>
+                <td class="text-end" style="white-space:nowrap;">
+                  <a href="{{ url_for('race_detail', race_id=rd.race.id) }}"
+                     class="btn btn-sm btn-outline-primary me-1">
+                    {{ 'Manage' if rd.race.status != 'completed' else 'View' }}
+                  </a>
+                  {% if rd.race.status != 'completed' %}
+                    <form method="post" action="{{ url_for('delete_race', race_id=rd.race.id) }}"
+                          class="d-inline"
+                          onsubmit="return confirm('Delete raceday on {{ rd.race.race_date | fmt_date }}?')">
+                      <button class="btn btn-sm btn-outline-danger">
+                        <i class="bi bi-trash"></i>
+                      </button>
+                    </form>
+                  {% endif %}
+                </td>
+              </tr>
+            {% else %}
+              <tr>
+                <td colspan="7" class="text-center text-muted py-4">
+                  No racedays yet — create one above.
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>{# /adminListView #}
+    </div>
+  </div>
+
+  {# ── Right column: Skippers ── #}
+  <div class="col-lg-4">
+
+    {# Add Skipper #}
+    <div class="card mb-4">
+      <div class="card-header navy">
+        <i class="bi bi-person-plus me-2"></i>Add Skipper
+      </div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('add_skipper') }}">
+          <div class="mb-2">
+            <input type="text" name="name" class="form-control"
+                   placeholder="Full name" required>
+          </div>
+          <div class="mb-2">
+            <input type="email" name="email" class="form-control"
+                   placeholder="Email (used to log in)" required autocomplete="off">
+          </div>
+          <div class="mb-3">
+            <input type="password" name="password" class="form-control"
+                   placeholder="Password" required autocomplete="new-password">
+          </div>
+          <div class="mb-3">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="is_admin" id="is_admin">
+              <label class="form-check-label" for="is_admin">
+                Admin access
+                <span class="text-muted fw-normal small">(can manage races and skippers)</span>
+              </label>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-navy w-100">
+            <i class="bi bi-person-plus"></i> Add Skipper
+          </button>
+        </form>
+      </div>
+    </div>
+
+    {# Skippers list #}
+    <div class="card">
+      <div class="card-header navy">
+        <i class="bi bi-people me-2"></i>Skippers
+        <span class="badge bg-light text-dark ms-1">{{ skippers | length }}</span>
+      </div>
+      <div class="list-group list-group-flush">
+        {% for sk in skippers %}
+          <div class="list-group-item px-3 py-2">
+            <div class="d-flex justify-content-between align-items-center">
+              <div>
+                <span class="fw-semibold">{{ sk.name }}</span>
+                <small class="text-muted d-block">
+                  {{ sk.email }}
+                  &nbsp;·&nbsp; {{ sk.sailed }} race{{ 's' if sk.sailed != 1 else '' }}
+                  {% if sk.withdrawal_count >= 2 %}
+                    &nbsp;·&nbsp; <span class="text-danger fw-semibold">{{ sk.withdrawal_count }} withdrawals</span>
+                  {% elif sk.withdrawal_count == 1 %}
+                    &nbsp;·&nbsp; <span class="text-warning fw-semibold">1 withdrawal</span>
+                  {% endif %}
+                </small>
+              </div>
+              <div class="d-flex gap-1">
+                <button class="btn btn-sm btn-outline-secondary"
+                        title="Edit skipper"
+                        data-bs-toggle="modal"
+                        data-bs-target="#editModal{{ sk.id }}">
+                  <i class="bi bi-pencil"></i>
+                </button>
+                <form method="post" action="{{ url_for('remove_skipper', skipper_id=sk.id) }}"
+                      onsubmit="return confirm('Remove {{ sk.name }} from the fleet?')">
+                  <button class="btn btn-sm btn-outline-danger" title="Remove skipper">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+
+          {# Edit skipper modal #}
+          <div class="modal fade" id="editModal{{ sk.id }}" tabindex="-1">
+            <div class="modal-dialog modal-sm">
+              <div class="modal-content">
+                <div class="modal-header py-2">
+                  <h6 class="modal-title">Edit Skipper</h6>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                {# Details tab #}
+                <form method="post" action="{{ url_for('edit_skipper', skipper_id=sk.id) }}">
+                  <div class="modal-body">
+                    <div class="mb-2">
+                      <label class="form-label small fw-semibold mb-1">Full name</label>
+                      <input type="text" name="name" class="form-control form-control-sm"
+                             value="{{ sk.name }}" required>
+                    </div>
+                    <div class="mb-3">
+                      <label class="form-label small fw-semibold mb-1">Email</label>
+                      <input type="email" name="email" class="form-control form-control-sm"
+                             value="{{ sk.email }}" required>
+                    </div>
+                    <hr class="my-2">
+                    <label class="form-label small fw-semibold mb-1">
+                      Reset password <span class="text-muted fw-normal">(leave blank to keep current)</span>
+                    </label>
+                    <input type="password" name="new_password" class="form-control form-control-sm"
+                           placeholder="New password" autocomplete="new-password">
+                  </div>
+                  <div class="modal-footer py-2">
+                    <button type="submit" class="btn btn-navy btn-sm">Save</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        {% else %}
+          <div class="list-group-item text-muted text-center py-3">
+            No skippers yet.
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Admin calendar ──────────────────────────────────────────────────────────
+const _adminRaces = [
+  {% for rd in race_data %}
+  { date: {{ rd.race.race_date | tojson }}, status: {{ rd.race.status | tojson }}, id: {{ rd.race.id }} },
+  {% endfor %}
+];
+let _adminCalInited = false;
+
+function adminShowView(view) {
+  const calDiv  = document.getElementById('adminCalendarView');
+  const listDiv = document.getElementById('adminListView');
+  const calBtn  = document.getElementById('adminCalBtn');
+  const listBtn = document.getElementById('adminListBtn');
+  if (view === 'cal') {
+    calDiv.classList.remove('d-none');
+    listDiv.classList.add('d-none');
+    calBtn.classList.add('active');
+    listBtn.classList.remove('active');
+    if (!_adminCalInited) { initCalendar('adminCalendarView', _adminRaces, 'admin'); _adminCalInited = true; }
+  } else {
+    listDiv.classList.remove('d-none');
+    calDiv.classList.add('d-none');
+    listBtn.classList.add('active');
+    calBtn.classList.remove('active');
+  }
+}
+
+function setAllBoats(checked) {
+  document.querySelectorAll('.boat-check').forEach(cb => cb.checked = checked);
+}
+
+// ── Table sorting ──────────────────────────────────────────────────────────
+(function () {
+  const table   = document.getElementById('racesTable');
+  if (!table) return;
+  const tbody   = table.querySelector('tbody');
+  let sortCol   = null;
+  let sortAsc   = true;
+
+  table.querySelectorAll('th.sortable').forEach(th => {
+    th.style.cursor = 'pointer';
+    th.style.userSelect = 'none';
+    th.addEventListener('click', () => {
+      const col = parseInt(th.dataset.col);
+      if (sortCol === col) {
+        sortAsc = !sortAsc;
+      } else {
+        sortCol = col;
+        sortAsc = true;
+      }
+      // Update sort icons
+      table.querySelectorAll('th.sortable .sort-icon').forEach(ic => ic.textContent = '↕');
+      th.querySelector('.sort-icon').textContent = sortAsc ? '↑' : '↓';
+
+      // Sort rows
+      const rows = Array.from(tbody.querySelectorAll('tr'));
+      rows.sort((a, b) => {
+        const aVal = a.cells[col]?.textContent.trim() ?? '';
+        const bVal = b.cells[col]?.textContent.trim() ?? '';
+        const aNum = Number(aVal);
+        const bNum = Number(bVal);
+        let cmp;
+        if (!isNaN(aNum) && !isNaN(bNum)) {
+          cmp = aNum - bNum;
+        } else {
+          cmp = aVal.localeCompare(bVal);
+        }
+        return sortAsc ? cmp : -cmp;
+      });
+      rows.forEach(r => tbody.appendChild(r));
+    });
+  });
+})();
+</script>
+
+<style>
+th.sortable:hover { background: #e2e6ea; }
+th.sortable .sort-icon { font-size: 0.75rem; opacity: 0.6; margin-left: 2px; }
+</style>
+{% endblock %}

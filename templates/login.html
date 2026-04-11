@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row justify-content-center mt-4">
+  <div class="col-sm-8 col-md-5 col-lg-4">
+    <div class="text-center mb-4">
+      <div style="font-size: 3rem;">⛵</div>
+      <h4 class="page-title">Sonar Fleet Allocator</h4>
+    </div>
+    <div class="card">
+      <div class="card-header p-0 border-bottom-0">
+        <ul class="nav nav-tabs card-header-tabs" id="authTabs">
+          <li class="nav-item flex-fill text-center">
+            <button class="nav-link w-100 {% if not show_signup %}active{% endif %} fw-semibold"
+                    data-bs-toggle="tab" data-bs-target="#loginTab">Sign In</button>
+          </li>
+          <li class="nav-item flex-fill text-center">
+            <button class="nav-link w-100 {% if show_signup %}active{% endif %} fw-semibold"
+                    data-bs-toggle="tab" data-bs-target="#signupTab">Create Account</button>
+          </li>
+        </ul>
+      </div>
+      <div class="card-body p-4">
+        <div class="tab-content">
+
+          {# ── Sign In ── #}
+          <div class="tab-pane fade {% if not show_signup %}show active{% endif %}" id="loginTab">
+            <form method="post" action="{{ url_for('login') }}" autocomplete="on">
+              <div class="mb-3">
+                <label class="form-label fw-semibold">Email</label>
+                <input type="email" name="email" class="form-control form-control-lg"
+                       autofocus autocomplete="email" required>
+              </div>
+              <div class="mb-4">
+                <label class="form-label fw-semibold">Password</label>
+                <input type="password" name="password" class="form-control form-control-lg"
+                       autocomplete="current-password" required>
+              </div>
+              <button class="btn btn-navy btn-lg w-100" type="submit">
+                <i class="bi bi-box-arrow-in-right"></i> Sign In
+              </button>
+            </form>
+          </div>
+
+          {# ── Create Account ── #}
+          <div class="tab-pane fade {% if show_signup %}show active{% endif %}" id="signupTab">
+            <form method="post" action="{{ url_for('signup') }}" autocomplete="off">
+              <div class="mb-3">
+                <label class="form-label fw-semibold">Full Name</label>
+                <input type="text" name="name" class="form-control form-control-lg"
+                       placeholder="e.g. Jane Smith" required>
+              </div>
+              <div class="mb-3">
+                <label class="form-label fw-semibold">Email</label>
+                <input type="email" name="email" class="form-control form-control-lg"
+                       autocomplete="email" required>
+              </div>
+              <div class="mb-3">
+                <label class="form-label fw-semibold">Password</label>
+                <input type="password" name="password" class="form-control form-control-lg"
+                       autocomplete="new-password" required>
+              </div>
+              <div class="mb-4">
+                <label class="form-label fw-semibold">Confirm Password</label>
+                <input type="password" name="confirm_password" class="form-control form-control-lg"
+                       autocomplete="new-password" required>
+              </div>
+              <button class="btn btn-navy btn-lg w-100" type="submit">
+                <i class="bi bi-person-plus"></i> Create Account
+              </button>
+            </form>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
