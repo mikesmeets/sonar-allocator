@@ -5,23 +5,12 @@ import hashlib
 from datetime import datetime, timedelta
 from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, session, flash
-from flask_mail import Mail, Message
 
 app = Flask(__name__)
 app.secret_key = 'sonar-fleet-secret-key-change-me'
 
 DATABASE = 'sonar.db'
 FLEET_SIZE = 9
-
-# ── email (Gmail SMTP) ─────────────────────────────────────────────────────────
-app.config['MAIL_SERVER']        = 'smtp.gmail.com'
-app.config['MAIL_PORT']          = 587
-app.config['MAIL_USE_TLS']       = True
-app.config['MAIL_USERNAME']      = os.environ.get('MAIL_USERNAME', '')   # your Gmail address
-app.config['MAIL_PASSWORD']      = os.environ.get('MAIL_PASSWORD', '')   # Gmail App Password
-app.config['MAIL_DEFAULT_SENDER'] = os.environ.get('MAIL_USERNAME', '')
-mail = Mail(app)
-MAIL_ENABLED = bool(os.environ.get('MAIL_USERNAME', ''))
 
 
 # ── database ──────────────────────────────────────────────────────────────────
@@ -137,16 +126,6 @@ def init_db():
 def hash_pw(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
-
-def send_email(to_email, subject, body):
-    """Send a plain-text email via Gmail SMTP. Silently skips if not configured."""
-    if not MAIL_ENABLED or not to_email:
-        return
-    try:
-        msg = Message(subject=subject, recipients=[to_email], body=body)
-        mail.send(msg)
-    except Exception as e:
-        app.logger.error('Email send failed to %s: %s', to_email, e)
 
 
 @app.template_filter('fmt_date')
@@ -318,26 +297,8 @@ def assign_boats(race_id):
             db.execute('UPDATE skippers SET was_bumped=0 WHERE id=?', (sid,))
     db.execute("UPDATE races SET status='allocated' WHERE id=?", (race_id,))
 
-    # Fetch contact info for notifications before closing db
-    notify_sids = set(assignments.keys()) | set(priority_ids[len(available_boats):])
-    skipper_info = {}
-    for sid in notify_sids:
-        row = db.execute('SELECT name, email FROM skippers WHERE id=?', (sid,)).fetchone()
-        if row:
-            skipper_info[sid] = {'name': row['name'], 'email': row['email']}
-
     db.commit()
     db.close()
-
-    race_date_fmt = fmt_date(race['race_date'])
-    for sid, boat in assignments.items():
-        info = skipper_info.get(sid, {})
-        send_email(
-            info.get('email'), f'Boat assigned — {race_date_fmt}',
-            f"Hi {info.get('name', 'Skipper')},\n\n"
-            f"You've been assigned Boat #{boat} for the raceday on {race_date_fmt}.\n\n"
-            f"See you on the water!"
-        )
 
     waitlisted = len(priority_ids) - len(assignments)
     msg = f'Boats assigned to {len(assignments)} skippers.'
@@ -612,28 +573,8 @@ def join_late(race_id):
                 (race_id, session['skipper_id'], boat_assigned)
             )
 
-    skipper_row = db.execute('SELECT name, email FROM skippers WHERE id=?',
-                             (session['skipper_id'],)).fetchone()
-    race_date_str = race['race_date']
     db.commit()
     db.close()
-
-    if skipper_row:
-        race_date_fmt = fmt_date(race_date_str)
-        if boat_assigned:
-            send_email(
-                skipper_row['email'], f'Boat assigned — {race_date_fmt}',
-                f"Hi {skipper_row['name']},\n\n"
-                f"You've joined the raceday on {race_date_fmt} and been assigned Boat #{boat_assigned}.\n\n"
-                f"See you on the water!"
-            )
-        else:
-            send_email(
-                skipper_row['email'], f'Waitlist confirmed — {race_date_fmt}',
-                f"Hi {skipper_row['name']},\n\n"
-                f"You've joined the waitlist for the raceday on {race_date_fmt}. "
-                f"We'll let you know if a boat becomes available."
-            )
 
     if boat_assigned:
         flash(f'Joined — you have been assigned Boat #{boat_assigned}.', 'success')
@@ -818,29 +759,9 @@ def set_race_status(race_id):
     if new_status == 'open':
         # Clear priority list when re-opening so it gets rebuilt fresh
         db.execute('DELETE FROM allocation_order WHERE race_id=?', (race_id,))
-    race = db.execute('SELECT race_date, deadline FROM races WHERE id=?', (race_id,)).fetchone()
     db.execute('UPDATE races SET status=? WHERE id=?', (new_status, race_id))
-
-    skippers_to_notify = []
-    if new_status == 'open':
-        skippers_to_notify = db.execute(
-            'SELECT name, email FROM skippers WHERE is_admin=0 AND email != ""'
-        ).fetchall()
-
     db.commit()
     db.close()
-
-    if new_status == 'open' and race:
-        race_date_fmt = fmt_date(race['race_date'])
-        deadline_fmt  = fmt_date(race['deadline'])
-        for sk in skippers_to_notify:
-            send_email(
-                sk['email'], f'Raceday open — {race_date_fmt}',
-                f"Hi {sk['name']},\n\n"
-                f"The raceday on {race_date_fmt} is now open for interest submissions.\n"
-                f"Submit your interest by {deadline_fmt}.\n\n"
-                f"Log in to the fleet allocator to sign up."
-            )
 
     label = 'opened for submissions' if new_status == 'open' else 'closed for submissions'
     flash(f'Raceday {label}.', 'success')
@@ -892,30 +813,16 @@ def update_race_boats(race_id):
         newly_bumped   = set(priority_ids[new_n:old_n]) if new_n < old_n else set()
         newly_promoted = set(priority_ids[old_n:new_n]) if new_n > old_n else set()
 
-        bumped_info = {}
         for sid in newly_bumped:
             db.execute(
                 'UPDATE allocation_order SET is_bumped=1 WHERE race_id=? AND skipper_id=?',
                 (race_id, sid)
             )
             db.execute('UPDATE skippers SET was_bumped=1 WHERE id=?', (sid,))
-            row = db.execute('SELECT name, email FROM skippers WHERE id=?', (sid,)).fetchone()
-            if row:
-                bumped_info[sid] = {'name': row['name'], 'email': row['email']}
 
-        race_date_fmt = fmt_date(race['race_date'])
         db.execute('UPDATE races SET available_boats=? WHERE id=?', (new_boats_str, race_id))
         db.commit()
         db.close()
-
-        for sid, info in bumped_info.items():
-            send_email(
-                info['email'], f'Raceday update — {race_date_fmt}',
-                f"Hi {info['name']},\n\n"
-                f"Unfortunately a boat has been removed from the raceday on {race_date_fmt} "
-                f"and you have been moved to the waitlist.\n\n"
-                f"You will have priority on your next allocation. We're sorry for the inconvenience."
-            )
 
         assign_boats(race_id)   # full reallocation; clears is_bumped for those getting boats
 
