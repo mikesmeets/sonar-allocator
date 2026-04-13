@@ -538,6 +538,7 @@ def dashboard():
     documents = db.execute(
         'SELECT * FROM documents WHERE visible_to_skippers=1 ORDER BY uploaded_at DESC'
     ).fetchall()
+    notice_text = get_setting('notice_text', '')
     db.close()
 
     return render_template('dashboard.html',
@@ -545,7 +546,8 @@ def dashboard():
                            race_data=race_data,
                            sailed=sailed,
                            completed_data=completed_data,
-                           documents=documents)
+                           documents=documents,
+                           notice_text=notice_text)
 
 
 @app.route('/interest/<int:race_id>/submit', methods=['POST'])
@@ -707,11 +709,13 @@ def admin():
         WHERE s.is_admin = 0
         ORDER BY s.name
     ''').fetchall()
-    deadline_days = int(get_setting('deadline_days', 3))
+    deadline_days   = int(get_setting('deadline_days', 3))
+    notice_text     = get_setting('notice_text', '')
     documents = db.execute('SELECT * FROM documents ORDER BY uploaded_at DESC').fetchall()
     db.close()
     return render_template('admin.html', race_data=race_data, skippers=skippers,
-                           deadline_days=deadline_days, documents=documents)
+                           deadline_days=deadline_days, documents=documents,
+                           notice_text=notice_text)
 
 
 @app.route('/admin/race/create', methods=['POST'])
@@ -1167,12 +1171,17 @@ def save_settings():
     if not deadline_days.isdigit() or int(deadline_days) < 1:
         flash('Deadline must be a positive number of days.', 'danger')
         return redirect(url_for('admin'))
+    notice_text = request.form.get('notice_text', '')
     db = get_db()
-    db.execute("INSERT INTO settings (key, value) VALUES ('deadline_days', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
-               (deadline_days,))
+    upsert = ("INSERT INTO settings (key, value) VALUES (?, ?) "
+              "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
+              if USE_POSTGRES else
+              "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)")
+    db.execute(upsert, ('deadline_days', deadline_days))
+    db.execute(upsert, ('notice_text', notice_text))
     db.commit()
     db.close()
-    flash(f'Default deadline set to {deadline_days} days before raceday.', 'success')
+    flash('Settings saved.', 'success')
     return redirect(url_for('admin'))
 
 
