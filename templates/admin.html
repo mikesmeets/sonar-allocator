@@ -3,9 +3,14 @@
 
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h3 class="page-title mb-0">Admin Dashboard</h3>
-  <a href="{{ url_for('stats') }}" class="btn btn-sm btn-outline-secondary">
-    <i class="bi bi-grid-3x3"></i> Rotation Stats
-  </a>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('settings_page') }}" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-gear"></i> Settings
+    </a>
+    <a href="{{ url_for('stats') }}" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-grid-3x3"></i> Rotation Stats
+    </a>
+  </div>
 </div>
 
 <div class="row g-4">
@@ -294,132 +299,6 @@
             No skippers yet.
           </div>
         {% endfor %}
-      </div>
-    </div>
-
-    {# Documents #}
-    <div class="card mt-4">
-      <div class="card-header navy">
-        <i class="bi bi-file-earmark-text me-2"></i>Documents
-        <span class="badge bg-light text-dark ms-1">{{ documents | length }}</span>
-      </div>
-
-      {# Upload form #}
-      <div class="card-body border-bottom pb-3">
-        <form method="post" action="{{ url_for('upload_document') }}" enctype="multipart/form-data">
-          <div class="mb-2">
-            <input type="text" name="title" class="form-control form-control-sm"
-                   placeholder="Title (leave blank to use filename)">
-          </div>
-          <div class="mb-2">
-            <input type="file" name="file" class="form-control form-control-sm" required>
-          </div>
-          <div class="form-check mb-2">
-            <input class="form-check-input" type="checkbox" name="visible" id="doc_visible_new">
-            <label class="form-check-label small" for="doc_visible_new">Visible to sailors</label>
-          </div>
-          <button type="submit" class="btn btn-navy btn-sm w-100">
-            <i class="bi bi-upload"></i> Upload
-          </button>
-        </form>
-      </div>
-
-      {# Document list #}
-      {% if documents %}
-        <div class="list-group list-group-flush">
-          {% for doc in documents %}
-            <div class="list-group-item px-3 py-2">
-              <div class="d-flex justify-content-between align-items-start gap-2">
-                <div class="flex-grow-1 min-width-0">
-                  <a href="{{ url_for('download_document', doc_id=doc.id) }}"
-                     target="_blank" class="fw-semibold text-decoration-none small">
-                    <i class="bi bi-file-earmark me-1"></i>{{ doc.title }}
-                  </a>
-                  <div class="d-flex align-items-center gap-2 mt-1">
-                    {% if doc.visible_to_skippers %}
-                      <span class="badge bg-success" style="font-size:0.65rem;">Visible</span>
-                    {% else %}
-                      <span class="badge bg-secondary" style="font-size:0.65rem;">Hidden</span>
-                    {% endif %}
-                    <small class="text-muted">{{ doc.uploaded_at[:10] | fmt_date }}</small>
-                  </div>
-                </div>
-                <button class="btn btn-sm btn-outline-secondary flex-shrink-0"
-                        data-bs-toggle="modal" data-bs-target="#docModal{{ doc.id }}">
-                  <i class="bi bi-pencil"></i>
-                </button>
-              </div>
-            </div>
-
-            {# Edit doc modal #}
-            <div class="modal fade" id="docModal{{ doc.id }}" tabindex="-1">
-              <div class="modal-dialog modal-sm">
-                <div class="modal-content">
-                  <div class="modal-header py-2">
-                    <h6 class="modal-title">Edit Document</h6>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                  </div>
-                  <form method="post" action="{{ url_for('update_document', doc_id=doc.id) }}">
-                    <div class="modal-body">
-                      <div class="mb-3">
-                        <label class="form-label small fw-semibold mb-1">Title</label>
-                        <input type="text" name="title" class="form-control form-control-sm"
-                               value="{{ doc.title }}" required>
-                      </div>
-                      <div class="form-check">
-                        <input class="form-check-input" type="checkbox" name="visible"
-                               id="doc_visible_{{ doc.id }}"
-                               {{ 'checked' if doc.visible_to_skippers }}>
-                        <label class="form-check-label small" for="doc_visible_{{ doc.id }}">
-                          Visible to sailors
-                        </label>
-                      </div>
-                    </div>
-                    <div class="modal-footer py-2 justify-content-between">
-                      <form method="post" action="{{ url_for('delete_document', doc_id=doc.id) }}"
-                            onsubmit="return confirm('Delete {{ doc.title }}?')">
-                        <button type="submit" class="btn btn-sm btn-outline-danger">
-                          <i class="bi bi-trash"></i>
-                        </button>
-                      </form>
-                      <button type="submit" class="btn btn-navy btn-sm">Save</button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            </div>
-          {% endfor %}
-        </div>
-      {% else %}
-        <div class="card-body text-muted small text-center py-3">No documents uploaded yet.</div>
-      {% endif %}
-    </div>
-
-    {# Settings #}
-    <div class="card mt-4" id="settingsCard">
-      <div class="card-header navy">
-        <i class="bi bi-gear me-2"></i>Settings
-      </div>
-      <div class="card-body">
-        <form method="post" action="{{ url_for('save_settings') }}">
-          <div class="mb-3">
-            <label class="form-label fw-semibold mb-1">Notice for sailors</label>
-            <textarea name="notice_text" class="form-control" rows="4"
-                      placeholder="Shown at the top of the sailor dashboard. Leave blank to hide.">{{ notice_text }}</textarea>
-            <div class="form-text">Supports plain text. Leave blank to hide.</div>
-          </div>
-          <div class="mb-3">
-            <label class="form-label fw-semibold mb-1">Default submission deadline</label>
-            <div class="input-group">
-              <input type="number" name="deadline_days" class="form-control"
-                     value="{{ deadline_days }}" min="1" max="365" required>
-              <span class="input-group-text">days before raceday</span>
-            </div>
-          </div>
-          <button type="submit" class="btn btn-navy btn-sm">
-            <i class="bi bi-save"></i> Save
-          </button>
-        </form>
       </div>
     </div>
 

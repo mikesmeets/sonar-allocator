@@ -1164,6 +1164,18 @@ def change_admin_password():
     return redirect(url_for('admin'))
 
 
+@app.route('/admin/settings')
+@admin_required
+def settings_page():
+    deadline_days = int(get_setting('deadline_days', 3))
+    notice_text   = get_setting('notice_text', '')
+    db = get_db()
+    documents = db.execute('SELECT * FROM documents ORDER BY uploaded_at DESC').fetchall()
+    db.close()
+    return render_template('settings.html', deadline_days=deadline_days,
+                           notice_text=notice_text, documents=documents)
+
+
 @app.route('/admin/settings', methods=['POST'])
 @admin_required
 def save_settings():
@@ -1182,7 +1194,7 @@ def save_settings():
     db.commit()
     db.close()
     flash('Settings saved.', 'success')
-    return redirect(url_for('admin'))
+    return redirect(url_for('settings_page'))
 
 
 @app.route('/admin/documents/upload', methods=['POST'])
@@ -1191,11 +1203,11 @@ def upload_document():
     f = request.files.get('file')
     if not f or f.filename == '':
         flash('No file selected.', 'danger')
-        return redirect(url_for('admin'))
+        return redirect(url_for('settings_page'))
     ext = f.filename.rsplit('.', 1)[-1].lower() if '.' in f.filename else ''
     if ext not in ALLOWED_EXTENSIONS:
         flash(f'File type .{ext} not allowed.', 'danger')
-        return redirect(url_for('admin'))
+        return redirect(url_for('settings_page'))
     original_name = secure_filename(f.filename)
     stored_name   = f'{uuid.uuid4().hex}.{ext}'
     title         = request.form.get('title', '').strip() or original_name
@@ -1209,7 +1221,7 @@ def upload_document():
     db.commit()
     db.close()
     flash(f'"{title}" uploaded.', 'success')
-    return redirect(url_for('admin'))
+    return redirect(url_for('settings_page'))
 
 
 @app.route('/admin/documents/<int:doc_id>/update', methods=['POST'])
@@ -1223,7 +1235,7 @@ def update_document(doc_id):
     db.commit()
     db.close()
     flash('Document updated.', 'success')
-    return redirect(url_for('admin'))
+    return redirect(url_for('settings_page'))
 
 
 @app.route('/admin/documents/<int:doc_id>/delete', methods=['POST'])
@@ -1239,7 +1251,7 @@ def delete_document(doc_id):
             os.remove(path)
         flash(f'"{row["title"]}" deleted.', 'info')
     db.close()
-    return redirect(url_for('admin'))
+    return redirect(url_for('settings_page'))
 
 
 @app.route('/documents/<int:doc_id>')
