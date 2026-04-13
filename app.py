@@ -196,12 +196,12 @@ def get_setting(key, default=None):
 
 @app.template_filter('fmt_date')
 def fmt_date(s):
-    """Format '2026-04-11' as 'Apr 11'."""
+    """Format '2026-04-11' as 'Sat Apr 11'."""
     if not s:
         return ''
     try:
         d = datetime.strptime(str(s)[:10], '%Y-%m-%d')
-        return d.strftime('%b') + ' ' + str(d.day)
+        return d.strftime('%a %b') + ' ' + str(d.day)
     except ValueError:
         return str(s)
 
