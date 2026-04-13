@@ -14,7 +14,11 @@ app.secret_key = 'sonar-fleet-secret-key-change-me'
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
 DATABASE_SQLITE = 'sonar.db'
 FLEET_SIZE = 9
-UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', os.path.join(os.path.dirname(__file__), 'uploads'))
+# On Railway, volumes are mounted at a fixed path set in the Volume settings.
+# Default to /app/uploads on Railway, or a local ./uploads folder otherwise.
+_on_railway = bool(os.environ.get('RAILWAY_ENVIRONMENT') or os.environ.get('RAILWAY_PROJECT_ID'))
+UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER',
+    '/app/uploads' if _on_railway else os.path.join(os.path.dirname(__file__), 'uploads'))
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf', 'doc', 'docx', 'xls', 'xlsx', 'txt', 'png', 'jpg', 'jpeg', 'gif'}
 
@@ -492,7 +496,11 @@ def dashboard():
         alloc_count = db.execute(
             'SELECT COUNT(*) FROM allocations WHERE race_id=?', (race['id'],)
         ).fetchone()[0]
-        spare_boats = len(parse_available_boats(race['available_boats'])) - alloc_count
+        interest_count = db.execute(
+            'SELECT COUNT(*) FROM interests WHERE race_id=?', (race['id'],)
+        ).fetchone()[0]
+        total_boats = len(parse_available_boats(race['available_boats']))
+        spare_boats = total_boats - alloc_count
 
         priority_row = db.execute(
             'SELECT priority_rank FROM allocation_order WHERE race_id=? AND skipper_id=?',
@@ -515,6 +523,8 @@ def dashboard():
             'boat':             alloc['boat_number'] if alloc else None,
             'past_deadline':    now > race['deadline'],
             'spare_boats':      spare_boats,
+            'total_boats':      total_boats,
+            'interest_count':   interest_count,
             'priority_rank':    priority_row['priority_rank'] if priority_row else None,
             'waitlist_position': waitlist_position,
         })
