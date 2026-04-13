@@ -14,7 +14,7 @@ app.secret_key = 'sonar-fleet-secret-key-change-me'
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
 DATABASE_SQLITE = 'sonar.db'
 FLEET_SIZE = 9
-UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
+UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER', os.path.join(os.path.dirname(__file__), 'uploads'))
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 ALLOWED_EXTENSIONS = {'pdf', 'doc', 'docx', 'xls', 'xlsx', 'txt', 'png', 'jpg', 'jpeg', 'gif'}
 
