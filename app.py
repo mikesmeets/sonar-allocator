@@ -1,7 +1,8 @@
 import os
 import random
-import sqlite3
 import hashlib
+import psycopg2
+import psycopg2.extras
 from datetime import datetime, timedelta
 from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, session, flash
@@ -9,115 +10,113 @@ from flask import Flask, render_template, request, redirect, url_for, session, f
 app = Flask(__name__)
 app.secret_key = 'sonar-fleet-secret-key-change-me'
 
-DATABASE = 'sonar.db'
+DATABASE_URL = os.environ.get('DATABASE_URL', '')
 FLEET_SIZE = 9
 
 
 # ── database ──────────────────────────────────────────────────────────────────
 
+class _DB:
+    """Thin wrapper making psycopg2 behave like sqlite3 for our usage."""
+    def __init__(self, conn):
+        self._conn = conn
+
+    def execute(self, sql, params=()):
+        cur = self._conn.cursor()
+        if params:
+            cur.execute(sql.replace('?', '%s'), params)
+        else:
+            cur.execute(sql.replace('?', '%s'))
+        return cur
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        self._conn.rollback()
+
+    def close(self):
+        self._conn.close()
+
+
 def get_db():
-    db = sqlite3.connect(DATABASE)
-    db.row_factory = sqlite3.Row
-    return db
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.DictCursor)
+    return _DB(conn)
 
 
 def init_db():
     db = get_db()
-    db.executescript('''
+    db.execute('''
         CREATE TABLE IF NOT EXISTS skippers (
-            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            id            SERIAL PRIMARY KEY,
             name          TEXT NOT NULL,
             email         TEXT UNIQUE NOT NULL DEFAULT '',
             password_hash TEXT NOT NULL DEFAULT '',
-            is_admin      INTEGER DEFAULT 0
-        );
+            is_admin      INTEGER DEFAULT 0,
+            was_bumped    INTEGER DEFAULT 0,
+            withdrawal_count INTEGER DEFAULT 0
+        )
+    ''')
+    db.execute('''
         CREATE TABLE IF NOT EXISTS races (
-            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            id               SERIAL PRIMARY KEY,
             race_date        TEXT NOT NULL,
             deadline         TEXT NOT NULL,
             status           TEXT DEFAULT 'open',
             notes            TEXT DEFAULT '',
             available_boats  TEXT DEFAULT '1,2,3,4,5,6,7,8,9'
-        );
+        )
+    ''')
+    db.execute('''
         CREATE TABLE IF NOT EXISTS interests (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            id           SERIAL PRIMARY KEY,
             race_id      INTEGER NOT NULL,
             skipper_id   INTEGER NOT NULL,
             submitted_at TEXT NOT NULL,
             UNIQUE(race_id, skipper_id)
-        );
+        )
+    ''')
+    db.execute('''
         CREATE TABLE IF NOT EXISTS allocations (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            id           SERIAL PRIMARY KEY,
             race_id      INTEGER NOT NULL,
             skipper_id   INTEGER NOT NULL,
             boat_number  INTEGER NOT NULL,
             UNIQUE(race_id, skipper_id),
             UNIQUE(race_id, boat_number)
-        );
+        )
+    ''')
+    db.execute('''
         CREATE TABLE IF NOT EXISTS race_history (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            id           SERIAL PRIMARY KEY,
             race_id      INTEGER NOT NULL,
             skipper_id   INTEGER NOT NULL,
             boat_number  INTEGER NOT NULL,
             race_date    TEXT NOT NULL
-        );
+        )
+    ''')
+    db.execute('''
         CREATE TABLE IF NOT EXISTS allocation_order (
-            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            id            SERIAL PRIMARY KEY,
             race_id       INTEGER NOT NULL,
             skipper_id    INTEGER NOT NULL,
             priority_rank INTEGER NOT NULL,
             is_late       INTEGER DEFAULT 0,
+            is_bumped     INTEGER DEFAULT 0,
             UNIQUE(race_id, skipper_id)
-        );
+        )
     ''')
-    # Migrations
-    race_cols    = [r[1] for r in db.execute("PRAGMA table_info(races)").fetchall()]
-    skipper_cols = [r[1] for r in db.execute("PRAGMA table_info(skippers)").fetchall()]
-    alloc_order_cols = [r[1] for r in db.execute("PRAGMA table_info(allocation_order)").fetchall()]
-
-    if 'is_late' not in alloc_order_cols:
-        db.execute("ALTER TABLE allocation_order ADD COLUMN is_late INTEGER DEFAULT 0")
-
-    if 'is_bumped' not in alloc_order_cols:
-        db.execute("ALTER TABLE allocation_order ADD COLUMN is_bumped INTEGER DEFAULT 0")
-
-    if 'was_bumped' not in skipper_cols:
-        db.execute("ALTER TABLE skippers ADD COLUMN was_bumped INTEGER DEFAULT 0")
-
-    if 'withdrawal_count' not in skipper_cols:
-        db.execute("ALTER TABLE skippers ADD COLUMN withdrawal_count INTEGER DEFAULT 0")
-
-    if 'available_boats' not in race_cols:
-        db.execute("ALTER TABLE races ADD COLUMN available_boats TEXT DEFAULT '1,2,3,4,5,6,7,8,9'")
-
-    # If the old username column still exists, migrate to email-only schema
-    if 'username' in skipper_cols:
-        db.executescript('''
-            CREATE TABLE IF NOT EXISTS skippers_new (
-                id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                name          TEXT NOT NULL,
-                email         TEXT UNIQUE NOT NULL DEFAULT '',
-                password_hash TEXT NOT NULL DEFAULT '',
-                is_admin      INTEGER DEFAULT 0
-            );
-            INSERT OR IGNORE INTO skippers_new (id, name, email, password_hash, is_admin)
-                SELECT id, name,
-                       CASE WHEN email != '' THEN email ELSE username END,
-                       password_hash, is_admin
-                FROM skippers;
-            DROP TABLE skippers;
-            ALTER TABLE skippers_new RENAME TO skippers;
-        ''')
+    # Idempotent migrations for existing databases
+    db.execute('ALTER TABLE allocation_order ADD COLUMN IF NOT EXISTS is_late INTEGER DEFAULT 0')
+    db.execute('ALTER TABLE allocation_order ADD COLUMN IF NOT EXISTS is_bumped INTEGER DEFAULT 0')
+    db.execute('ALTER TABLE skippers ADD COLUMN IF NOT EXISTS was_bumped INTEGER DEFAULT 0')
+    db.execute('ALTER TABLE skippers ADD COLUMN IF NOT EXISTS withdrawal_count INTEGER DEFAULT 0')
+    db.execute("ALTER TABLE races ADD COLUMN IF NOT EXISTS available_boats TEXT DEFAULT '1,2,3,4,5,6,7,8,9'")
 
     if not db.execute('SELECT 1 FROM skippers WHERE is_admin=1').fetchone():
         db.execute(
             'INSERT INTO skippers (name, email, password_hash, is_admin) VALUES (?,?,?,1)',
             ('Admin', 'admin@admin.com', hash_pw('admin'))
-        )
-    else:
-        # Migrate old admin email 'admin' → 'admin@admin.com'
-        db.execute(
-            "UPDATE skippers SET email='admin@admin.com' WHERE is_admin=1 AND email='admin'"
         )
     db.commit()
     db.close()
@@ -389,7 +388,8 @@ def signup():
         flash(f'Welcome, {name}! Your account has been created.', 'success')
         db.close()
         return redirect(url_for('dashboard'))
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
+        db.rollback()
         flash('That email is already registered.', 'danger')
         db.close()
         return render_template('login.html', show_signup=True)
@@ -500,7 +500,8 @@ def submit_interest(race_id):
             )
             db.commit()
             flash("You're in — interest submitted!", 'success')
-        except sqlite3.IntegrityError:
+        except psycopg2.IntegrityError:
+            db.rollback()
             flash('Already submitted for this raceday.', 'warning')
     db.close()
     return redirect(url_for('dashboard'))
@@ -884,7 +885,8 @@ def admin_add_interest(race_id):
             )
         db.commit()
         flash('Skipper added to the priority list.', 'success')
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
+        db.rollback()
         flash('Skipper already submitted.', 'warning')
     db.close()
     return redirect(url_for('race_detail', race_id=race_id))
@@ -939,7 +941,8 @@ def set_boat(race_id):
             flash(f'Boat {boat_number} is already assigned to another skipper.', 'danger')
         else:
             db.execute(
-                'INSERT OR REPLACE INTO allocations (race_id, skipper_id, boat_number) VALUES (?,?,?)',
+                '''INSERT INTO allocations (race_id, skipper_id, boat_number) VALUES (?,?,?)
+                   ON CONFLICT (race_id, skipper_id) DO UPDATE SET boat_number = EXCLUDED.boat_number''',
                 (race_id, skipper_id, boat_number)
             )
             db.commit()
@@ -1004,7 +1007,8 @@ def add_skipper():
         db.commit()
         role = 'Admin' if is_admin else 'Skipper'
         flash(f'{role} {name} added.', 'success')
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
+        db.rollback()
         flash('That email is already registered.', 'danger')
     db.close()
     return redirect(url_for('admin'))
@@ -1039,7 +1043,8 @@ def edit_skipper(skipper_id):
                        (hash_pw(new_pw), skipper_id))
         db.commit()
         flash(f'{name} updated.', 'success')
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
+        db.rollback()
         flash('That email is already registered to another skipper.', 'danger')
     db.close()
     return redirect(url_for('admin'))
