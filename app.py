@@ -697,25 +697,32 @@ def admin():
 @app.route('/admin/race/create', methods=['POST'])
 @admin_required
 def create_race():
-    race_date_str   = request.form['race_date']
+    race_date_strs  = request.form.getlist('race_dates')
     notes           = request.form.get('notes', '').strip()
-    selected_boats  = request.form.getlist('boats')  # list of checked boat numbers
+    selected_boats  = request.form.getlist('boats')
+    if not race_date_strs:
+        flash('Please select at least one date.', 'danger')
+        return redirect(url_for('admin'))
     if not selected_boats:
         flash('Please select at least one boat.', 'danger')
         return redirect(url_for('admin'))
     available_boats = ','.join(sorted(selected_boats, key=int))
-    race_date       = datetime.strptime(race_date_str, '%Y-%m-%d')
     deadline_days   = int(get_setting('deadline_days', 3))
-    deadline_dt     = (race_date - timedelta(days=deadline_days)).replace(hour=23, minute=59, second=59)
+    status          = 'open' if request.form.get('open_now') else 'scheduled'
     db = get_db()
-    status = 'open' if request.form.get('open_now') else 'scheduled'
-    db.execute(
-        'INSERT INTO races (race_date, deadline, notes, available_boats, status) VALUES (?,?,?,?,?)',
-        (race_date_str, deadline_dt.isoformat(), notes, available_boats, status)
-    )
+    created = 0
+    for race_date_str in sorted(set(race_date_strs)):
+        race_date   = datetime.strptime(race_date_str, '%Y-%m-%d')
+        deadline_dt = (race_date - timedelta(days=deadline_days)).replace(hour=23, minute=59, second=59)
+        db.execute(
+            'INSERT INTO races (race_date, deadline, notes, available_boats, status) VALUES (?,?,?,?,?)',
+            (race_date_str, deadline_dt.isoformat(), notes, available_boats, status)
+        )
+        created += 1
     db.commit()
     db.close()
-    flash(f'Raceday created ({status}).', 'success')
+    label = f'{created} raceday{"s" if created != 1 else ""}'
+    flash(f'{label} created ({status}).', 'success')
     return redirect(url_for('admin'))
 
 

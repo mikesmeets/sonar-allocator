@@ -19,16 +19,30 @@
         <i class="bi bi-plus-circle me-2"></i>Create New Raceday
       </div>
       <div class="card-body">
-        <form method="post" action="{{ url_for('create_race') }}">
-          <div class="row g-3 align-items-end mb-3">
-            <div class="col-md-4">
-              <label class="form-label fw-semibold">Date <span class="text-muted fw-normal">(Saturday)</span></label>
-              <input type="date" name="race_date" class="form-control" required>
+        <form method="post" action="{{ url_for('create_race') }}" id="createRaceForm">
+
+          {# Date picker #}
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Dates</label>
+            <div class="border rounded p-2 bg-white" style="max-width:320px;">
+              {# Month navigation #}
+              <div class="d-flex justify-content-between align-items-center mb-2 px-1">
+                <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="crPrevMonth()">&#8249;</button>
+                <span id="crMonthLabel" class="fw-semibold small"></span>
+                <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="crNextMonth()">&#8250;</button>
+              </div>
+              <div id="crCalGrid"></div>
             </div>
-            <div class="col-md-8">
-              <label class="form-label fw-semibold">Notes <span class="text-muted fw-normal">(optional)</span></label>
-              <input type="text" name="notes" class="form-control" placeholder="e.g. Series 1 Race 3">
-            </div>
+            {# Selected date chips #}
+            <div id="crSelected" class="d-flex flex-wrap gap-1 mt-2"></div>
+            {# Hidden inputs populated by JS #}
+            <div id="crHiddenInputs"></div>
+            <div id="crDateError" class="text-danger small mt-1 d-none">Select at least one date.</div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Notes <span class="text-muted fw-normal">(optional — applied to all selected dates)</span></label>
+            <input type="text" name="notes" class="form-control" placeholder="e.g. Series 1">
           </div>
 
           <div class="mb-3">
@@ -62,8 +76,9 @@
             </label>
           </div>
 
-          <button type="submit" class="btn btn-navy">
-            <i class="bi bi-calendar-plus"></i> Create Raceday
+          <button type="submit" class="btn btn-navy" onclick="return crValidate()">
+            <i class="bi bi-calendar-plus"></i>
+            <span id="crSubmitLabel">Create Raceday</span>
           </button>
         </form>
         <small class="text-muted mt-3 d-block">
@@ -341,6 +356,90 @@ function adminShowView(view) {
 function setAllBoats(checked) {
   document.querySelectorAll('.boat-check').forEach(cb => cb.checked = checked);
 }
+
+// ── Create-race date picker ─────────────────────────────────────────────────
+(function () {
+  const DAYS = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+  const MONTHS = ['January','February','March','April','May','June',
+                  'July','August','September','October','November','December'];
+  let crYear, crMonth;
+  let crDates = new Set(); // selected YYYY-MM-DD strings
+
+  function crToday() {
+    const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() };
+  }
+
+  function crPad(n) { return String(n).padStart(2,'0'); }
+
+  function crFmt(iso) {
+    const [y,m,d] = iso.split('-');
+    return `${MONTHS[parseInt(m)-1].slice(0,3)} ${parseInt(d)}`;
+  }
+
+  window.crPrevMonth = function() { crMonth--; if (crMonth < 0) { crMonth = 11; crYear--; } crRender(); };
+  window.crNextMonth = function() { crMonth++; if (crMonth > 11) { crMonth = 0; crYear++; } crRender(); };
+
+  function crRender() {
+    document.getElementById('crMonthLabel').textContent = `${MONTHS[crMonth]} ${crYear}`;
+
+    const grid = document.getElementById('crCalGrid');
+    // Header row
+    let html = '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center;">';
+    DAYS.forEach(d => { html += `<div style="font-size:0.7rem;color:#888;padding:2px 0;">${d}</div>`; });
+
+    // Blank cells before first of month
+    const first = new Date(crYear, crMonth, 1).getDay();
+    for (let i = 0; i < first; i++) html += '<div></div>';
+
+    // Days
+    const daysInMonth = new Date(crYear, crMonth + 1, 0).getDate();
+    for (let d = 1; d <= daysInMonth; d++) {
+      const iso = `${crYear}-${crPad(crMonth+1)}-${crPad(d)}`;
+      const sel = crDates.has(iso);
+      const style = sel
+        ? 'background:var(--navy);color:#fff;border-radius:50%;cursor:pointer;font-size:0.8rem;padding:4px 0;'
+        : 'border-radius:50%;cursor:pointer;font-size:0.8rem;padding:4px 0;';
+      html += `<div style="${style}" onclick="crToggle('${iso}')">${d}</div>`;
+    }
+    html += '</div>';
+    grid.innerHTML = html;
+
+    // Chips
+    const chips = document.getElementById('crSelected');
+    const hidden = document.getElementById('crHiddenInputs');
+    chips.innerHTML = '';
+    hidden.innerHTML = '';
+    const sorted = Array.from(crDates).sort();
+    sorted.forEach(iso => {
+      chips.innerHTML += `<span class="badge bg-secondary" style="cursor:pointer;" onclick="crToggle('${iso}')">${crFmt(iso)} ×</span>`;
+      hidden.innerHTML += `<input type="hidden" name="race_dates" value="${iso}">`;
+    });
+
+    // Submit button label
+    const n = crDates.size;
+    document.getElementById('crSubmitLabel').textContent =
+      n <= 1 ? 'Create Raceday' : `Create ${n} Racedays`;
+  }
+
+  window.crToggle = function(iso) {
+    if (crDates.has(iso)) crDates.delete(iso); else crDates.add(iso);
+    crRender();
+  };
+
+  window.crValidate = function() {
+    if (crDates.size === 0) {
+      document.getElementById('crDateError').classList.remove('d-none');
+      return false;
+    }
+    document.getElementById('crDateError').classList.add('d-none');
+    return true;
+  };
+
+  // Init to current month
+  const t = crToday();
+  crYear = t.y; crMonth = t.m;
+  crRender();
+})();
 
 // ── Table sorting ──────────────────────────────────────────────────────────
 (function () {
