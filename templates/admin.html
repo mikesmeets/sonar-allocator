@@ -68,7 +68,8 @@
         </form>
         <small class="text-muted mt-3 d-block">
           <i class="bi bi-info-circle"></i>
-          Submission deadline is automatically set to 10 days before raceday (11:59 PM).
+          Submission deadline is automatically set to <strong>{{ deadline_days }} day{{ 's' if deadline_days != 1 else '' }}</strong> before raceday (11:59 PM).
+          <a href="#settingsCard" class="ms-1">Change</a>
         </small>
       </div>
     </div>
@@ -278,6 +279,28 @@
             No skippers yet.
           </div>
         {% endfor %}
+      </div>
+    </div>
+
+    {# Settings #}
+    <div class="card mt-4" id="settingsCard">
+      <div class="card-header navy">
+        <i class="bi bi-gear me-2"></i>Settings
+      </div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('save_settings') }}">
+          <label class="form-label fw-semibold mb-1">Default submission deadline</label>
+          <div class="input-group">
+            <input type="number" name="deadline_days" class="form-control"
+                   value="{{ deadline_days }}" min="1" max="365" required>
+            <span class="input-group-text">days before raceday</span>
+          </div>
+          <div class="mt-3">
+            <button type="submit" class="btn btn-navy btn-sm">
+              <i class="bi bi-save"></i> Save
+            </button>
+          </div>
+        </form>
       </div>
     </div>
 

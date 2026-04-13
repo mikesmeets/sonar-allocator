@@ -1,8 +1,7 @@
 import os
 import random
 import hashlib
-import psycopg2
-import psycopg2.extras
+import sqlite3
 from datetime import datetime, timedelta
 from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, session, flash
@@ -11,12 +10,22 @@ app = Flask(__name__)
 app.secret_key = 'sonar-fleet-secret-key-change-me'
 
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
+DATABASE_SQLITE = 'sonar.db'
 FLEET_SIZE = 9
+
+USE_POSTGRES = bool(DATABASE_URL)
+
+if USE_POSTGRES:
+    import psycopg2
+    import psycopg2.extras
+    IntegrityError = psycopg2.IntegrityError
+else:
+    IntegrityError = sqlite3.IntegrityError
 
 
 # ── database ──────────────────────────────────────────────────────────────────
 
-class _DB:
+class _PGConn:
     """Thin wrapper making psycopg2 behave like sqlite3 for our usage."""
     def __init__(self, conn):
         self._conn = conn
@@ -40,15 +49,21 @@ class _DB:
 
 
 def get_db():
-    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.DictCursor)
-    return _DB(conn)
+    if USE_POSTGRES:
+        conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.DictCursor)
+        return _PGConn(conn)
+    else:
+        conn = sqlite3.connect(DATABASE_SQLITE)
+        conn.row_factory = sqlite3.Row
+        return conn
 
 
 def init_db():
     db = get_db()
-    db.execute('''
+    pk = 'SERIAL PRIMARY KEY' if USE_POSTGRES else 'INTEGER PRIMARY KEY AUTOINCREMENT'
+    db.execute(f'''
         CREATE TABLE IF NOT EXISTS skippers (
-            id            SERIAL PRIMARY KEY,
+            id            {pk},
             name          TEXT NOT NULL,
             email         TEXT UNIQUE NOT NULL DEFAULT '',
             password_hash TEXT NOT NULL DEFAULT '',
@@ -57,9 +72,9 @@ def init_db():
             withdrawal_count INTEGER DEFAULT 0
         )
     ''')
-    db.execute('''
+    db.execute(f'''
         CREATE TABLE IF NOT EXISTS races (
-            id               SERIAL PRIMARY KEY,
+            id               {pk},
             race_date        TEXT NOT NULL,
             deadline         TEXT NOT NULL,
             status           TEXT DEFAULT 'open',
@@ -67,18 +82,18 @@ def init_db():
             available_boats  TEXT DEFAULT '1,2,3,4,5,6,7,8,9'
         )
     ''')
-    db.execute('''
+    db.execute(f'''
         CREATE TABLE IF NOT EXISTS interests (
-            id           SERIAL PRIMARY KEY,
+            id           {pk},
             race_id      INTEGER NOT NULL,
             skipper_id   INTEGER NOT NULL,
             submitted_at TEXT NOT NULL,
             UNIQUE(race_id, skipper_id)
         )
     ''')
-    db.execute('''
+    db.execute(f'''
         CREATE TABLE IF NOT EXISTS allocations (
-            id           SERIAL PRIMARY KEY,
+            id           {pk},
             race_id      INTEGER NOT NULL,
             skipper_id   INTEGER NOT NULL,
             boat_number  INTEGER NOT NULL,
@@ -86,18 +101,18 @@ def init_db():
             UNIQUE(race_id, boat_number)
         )
     ''')
-    db.execute('''
+    db.execute(f'''
         CREATE TABLE IF NOT EXISTS race_history (
-            id           SERIAL PRIMARY KEY,
+            id           {pk},
             race_id      INTEGER NOT NULL,
             skipper_id   INTEGER NOT NULL,
             boat_number  INTEGER NOT NULL,
             race_date    TEXT NOT NULL
         )
     ''')
-    db.execute('''
+    db.execute(f'''
         CREATE TABLE IF NOT EXISTS allocation_order (
-            id            SERIAL PRIMARY KEY,
+            id            {pk},
             race_id       INTEGER NOT NULL,
             skipper_id    INTEGER NOT NULL,
             priority_rank INTEGER NOT NULL,
@@ -106,12 +121,38 @@ def init_db():
             UNIQUE(race_id, skipper_id)
         )
     ''')
-    # Idempotent migrations for existing databases
-    db.execute('ALTER TABLE allocation_order ADD COLUMN IF NOT EXISTS is_late INTEGER DEFAULT 0')
-    db.execute('ALTER TABLE allocation_order ADD COLUMN IF NOT EXISTS is_bumped INTEGER DEFAULT 0')
-    db.execute('ALTER TABLE skippers ADD COLUMN IF NOT EXISTS was_bumped INTEGER DEFAULT 0')
-    db.execute('ALTER TABLE skippers ADD COLUMN IF NOT EXISTS withdrawal_count INTEGER DEFAULT 0')
-    db.execute("ALTER TABLE races ADD COLUMN IF NOT EXISTS available_boats TEXT DEFAULT '1,2,3,4,5,6,7,8,9'")
+    db.execute('''
+        CREATE TABLE IF NOT EXISTS settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+    ''')
+
+    if USE_POSTGRES:
+        db.execute("INSERT INTO settings (key, value) VALUES ('deadline_days', '3') ON CONFLICT (key) DO NOTHING")
+        db.execute('ALTER TABLE allocation_order ADD COLUMN IF NOT EXISTS is_late INTEGER DEFAULT 0')
+        db.execute('ALTER TABLE allocation_order ADD COLUMN IF NOT EXISTS is_bumped INTEGER DEFAULT 0')
+        db.execute('ALTER TABLE skippers ADD COLUMN IF NOT EXISTS was_bumped INTEGER DEFAULT 0')
+        db.execute('ALTER TABLE skippers ADD COLUMN IF NOT EXISTS withdrawal_count INTEGER DEFAULT 0')
+        db.execute("ALTER TABLE races ADD COLUMN IF NOT EXISTS available_boats TEXT DEFAULT '1,2,3,4,5,6,7,8,9'")
+    else:
+        # SQLite: INSERT OR IGNORE for settings seed
+        db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('deadline_days', '3')")
+        # SQLite migrations via PRAGMA
+        cols = lambda tbl: [r[1] for r in db.execute(f'PRAGMA table_info({tbl})').fetchall()]
+        ao_cols = cols('allocation_order')
+        sk_cols = cols('skippers')
+        rc_cols = cols('races')
+        if 'is_late' not in ao_cols:
+            db.execute('ALTER TABLE allocation_order ADD COLUMN is_late INTEGER DEFAULT 0')
+        if 'is_bumped' not in ao_cols:
+            db.execute('ALTER TABLE allocation_order ADD COLUMN is_bumped INTEGER DEFAULT 0')
+        if 'was_bumped' not in sk_cols:
+            db.execute('ALTER TABLE skippers ADD COLUMN was_bumped INTEGER DEFAULT 0')
+        if 'withdrawal_count' not in sk_cols:
+            db.execute('ALTER TABLE skippers ADD COLUMN withdrawal_count INTEGER DEFAULT 0')
+        if 'available_boats' not in rc_cols:
+            db.execute("ALTER TABLE races ADD COLUMN available_boats TEXT DEFAULT '1,2,3,4,5,6,7,8,9'")
 
     if not db.execute('SELECT 1 FROM skippers WHERE is_admin=1').fetchone():
         db.execute(
@@ -124,6 +165,13 @@ def init_db():
 
 def hash_pw(password):
     return hashlib.sha256(password.encode()).hexdigest()
+
+
+def get_setting(key, default=None):
+    db = get_db()
+    row = db.execute('SELECT value FROM settings WHERE key=?', (key,)).fetchone()
+    db.close()
+    return row['value'] if row else default
 
 
 
@@ -388,7 +436,7 @@ def signup():
         flash(f'Welcome, {name}! Your account has been created.', 'success')
         db.close()
         return redirect(url_for('dashboard'))
-    except psycopg2.IntegrityError:
+    except IntegrityError:
         db.rollback()
         flash('That email is already registered.', 'danger')
         db.close()
@@ -500,7 +548,7 @@ def submit_interest(race_id):
             )
             db.commit()
             flash("You're in — interest submitted!", 'success')
-        except psycopg2.IntegrityError:
+        except IntegrityError:
             db.rollback()
             flash('Already submitted for this raceday.', 'warning')
     db.close()
@@ -640,8 +688,10 @@ def admin():
         WHERE s.is_admin = 0
         ORDER BY s.name
     ''').fetchall()
+    deadline_days = int(get_setting('deadline_days', 3))
     db.close()
-    return render_template('admin.html', race_data=race_data, skippers=skippers)
+    return render_template('admin.html', race_data=race_data, skippers=skippers,
+                           deadline_days=deadline_days)
 
 
 @app.route('/admin/race/create', methods=['POST'])
@@ -655,7 +705,8 @@ def create_race():
         return redirect(url_for('admin'))
     available_boats = ','.join(sorted(selected_boats, key=int))
     race_date       = datetime.strptime(race_date_str, '%Y-%m-%d')
-    deadline_dt     = (race_date - timedelta(days=10)).replace(hour=23, minute=59, second=59)
+    deadline_days   = int(get_setting('deadline_days', 3))
+    deadline_dt     = (race_date - timedelta(days=deadline_days)).replace(hour=23, minute=59, second=59)
     db = get_db()
     status = 'open' if request.form.get('open_now') else 'scheduled'
     db.execute(
@@ -885,7 +936,7 @@ def admin_add_interest(race_id):
             )
         db.commit()
         flash('Skipper added to the priority list.', 'success')
-    except psycopg2.IntegrityError:
+    except IntegrityError:
         db.rollback()
         flash('Skipper already submitted.', 'warning')
     db.close()
@@ -1007,7 +1058,7 @@ def add_skipper():
         db.commit()
         role = 'Admin' if is_admin else 'Skipper'
         flash(f'{role} {name} added.', 'success')
-    except psycopg2.IntegrityError:
+    except IntegrityError:
         db.rollback()
         flash('That email is already registered.', 'danger')
     db.close()
@@ -1043,7 +1094,7 @@ def edit_skipper(skipper_id):
                        (hash_pw(new_pw), skipper_id))
         db.commit()
         flash(f'{name} updated.', 'success')
-    except psycopg2.IntegrityError:
+    except IntegrityError:
         db.rollback()
         flash('That email is already registered to another skipper.', 'danger')
     db.close()
@@ -1079,6 +1130,22 @@ def change_admin_password():
     else:
         flash('Current password incorrect.', 'danger')
     db.close()
+    return redirect(url_for('admin'))
+
+
+@app.route('/admin/settings', methods=['POST'])
+@admin_required
+def save_settings():
+    deadline_days = request.form.get('deadline_days', '').strip()
+    if not deadline_days.isdigit() or int(deadline_days) < 1:
+        flash('Deadline must be a positive number of days.', 'danger')
+        return redirect(url_for('admin'))
+    db = get_db()
+    db.execute("INSERT INTO settings (key, value) VALUES ('deadline_days', ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+               (deadline_days,))
+    db.commit()
+    db.close()
+    flash(f'Default deadline set to {deadline_days} days before raceday.', 'success')
     return redirect(url_for('admin'))
 
 
