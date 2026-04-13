@@ -123,6 +123,14 @@
                 {% endif %}
               </span>
             {% endif %}
+            <div class="mt-1 d-flex gap-2 flex-wrap">
+              <small class="text-muted">
+                <i class="bi bi-people me-1"></i>{{ rd.interest_count }} interested
+              </small>
+              <small class="text-muted">
+                <i class="bi bi-sailboat me-1"></i>{{ rd.total_boats }} boat{{ 's' if rd.total_boats != 1 else '' }}
+              </small>
+            </div>
           </div>
 
           {# Status #}
