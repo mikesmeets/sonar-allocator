@@ -1,10 +1,12 @@
 import os
+import uuid
 import random
 import hashlib
 import sqlite3
 from datetime import datetime, timedelta
 from functools import wraps
-from flask import Flask, render_template, request, redirect, url_for, session, flash
+from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 app.secret_key = 'sonar-fleet-secret-key-change-me'
@@ -12,6 +14,9 @@ app.secret_key = 'sonar-fleet-secret-key-change-me'
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
 DATABASE_SQLITE = 'sonar.db'
 FLEET_SIZE = 9
+UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'uploads')
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+ALLOWED_EXTENSIONS = {'pdf', 'doc', 'docx', 'xls', 'xlsx', 'txt', 'png', 'jpg', 'jpeg', 'gif'}
 
 USE_POSTGRES = bool(DATABASE_URL)
 
@@ -125,6 +130,16 @@ def init_db():
         CREATE TABLE IF NOT EXISTS settings (
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL
+        )
+    ''')
+    db.execute(f'''
+        CREATE TABLE IF NOT EXISTS documents (
+            id                  {pk},
+            title               TEXT NOT NULL,
+            stored_name         TEXT NOT NULL,
+            original_name       TEXT NOT NULL,
+            visible_to_skippers INTEGER DEFAULT 0,
+            uploaded_at         TEXT NOT NULL
         )
     ''')
 
@@ -520,13 +535,17 @@ def dashboard():
             'boat': history['boat_number'] if history else None,
         })
 
+    documents = db.execute(
+        'SELECT * FROM documents WHERE visible_to_skippers=1 ORDER BY uploaded_at DESC'
+    ).fetchall()
     db.close()
 
     return render_template('dashboard.html',
                            skipper=skipper,
                            race_data=race_data,
                            sailed=sailed,
-                           completed_data=completed_data)
+                           completed_data=completed_data,
+                           documents=documents)
 
 
 @app.route('/interest/<int:race_id>/submit', methods=['POST'])
@@ -689,9 +708,10 @@ def admin():
         ORDER BY s.name
     ''').fetchall()
     deadline_days = int(get_setting('deadline_days', 3))
+    documents = db.execute('SELECT * FROM documents ORDER BY uploaded_at DESC').fetchall()
     db.close()
     return render_template('admin.html', race_data=race_data, skippers=skippers,
-                           deadline_days=deadline_days)
+                           deadline_days=deadline_days, documents=documents)
 
 
 @app.route('/admin/race/create', methods=['POST'])
@@ -1154,6 +1174,80 @@ def save_settings():
     db.close()
     flash(f'Default deadline set to {deadline_days} days before raceday.', 'success')
     return redirect(url_for('admin'))
+
+
+@app.route('/admin/documents/upload', methods=['POST'])
+@admin_required
+def upload_document():
+    f = request.files.get('file')
+    if not f or f.filename == '':
+        flash('No file selected.', 'danger')
+        return redirect(url_for('admin'))
+    ext = f.filename.rsplit('.', 1)[-1].lower() if '.' in f.filename else ''
+    if ext not in ALLOWED_EXTENSIONS:
+        flash(f'File type .{ext} not allowed.', 'danger')
+        return redirect(url_for('admin'))
+    original_name = secure_filename(f.filename)
+    stored_name   = f'{uuid.uuid4().hex}.{ext}'
+    title         = request.form.get('title', '').strip() or original_name
+    f.save(os.path.join(UPLOAD_FOLDER, stored_name))
+    visible = 1 if request.form.get('visible') else 0
+    db = get_db()
+    db.execute(
+        'INSERT INTO documents (title, stored_name, original_name, visible_to_skippers, uploaded_at) VALUES (?,?,?,?,?)',
+        (title, stored_name, original_name, visible, datetime.now().isoformat())
+    )
+    db.commit()
+    db.close()
+    flash(f'"{title}" uploaded.', 'success')
+    return redirect(url_for('admin'))
+
+
+@app.route('/admin/documents/<int:doc_id>/update', methods=['POST'])
+@admin_required
+def update_document(doc_id):
+    title   = request.form.get('title', '').strip()
+    visible = 1 if request.form.get('visible') else 0
+    db = get_db()
+    db.execute('UPDATE documents SET title=?, visible_to_skippers=? WHERE id=?',
+               (title, visible, doc_id))
+    db.commit()
+    db.close()
+    flash('Document updated.', 'success')
+    return redirect(url_for('admin'))
+
+
+@app.route('/admin/documents/<int:doc_id>/delete', methods=['POST'])
+@admin_required
+def delete_document(doc_id):
+    db = get_db()
+    row = db.execute('SELECT stored_name, title FROM documents WHERE id=?', (doc_id,)).fetchone()
+    if row:
+        db.execute('DELETE FROM documents WHERE id=?', (doc_id,))
+        db.commit()
+        path = os.path.join(UPLOAD_FOLDER, row['stored_name'])
+        if os.path.exists(path):
+            os.remove(path)
+        flash(f'"{row["title"]}" deleted.', 'info')
+    db.close()
+    return redirect(url_for('admin'))
+
+
+@app.route('/documents/<int:doc_id>')
+@login_required
+def download_document(doc_id):
+    db = get_db()
+    row = db.execute('SELECT * FROM documents WHERE id=?', (doc_id,)).fetchone()
+    db.close()
+    if not row:
+        flash('Document not found.', 'danger')
+        return redirect(url_for('dashboard'))
+    if not session.get('is_admin') and not row['visible_to_skippers']:
+        flash('Document not available.', 'danger')
+        return redirect(url_for('dashboard'))
+    return send_from_directory(UPLOAD_FOLDER, row['stored_name'],
+                               as_attachment=False,
+                               download_name=row['original_name'])
 
 
 @app.route('/admin/stats')
