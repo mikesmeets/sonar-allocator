@@ -1281,24 +1281,6 @@ def download_document(doc_id):
                                download_name=row['original_name'])
 
 
-@app.route('/admin/debug/uploads')
-@admin_required
-def debug_uploads():
-    """Temporary: show upload folder path and contents for diagnosing Railway volume issues."""
-    import json
-    try:
-        files = os.listdir(UPLOAD_FOLDER)
-    except Exception as e:
-        files = [f'ERROR: {e}']
-    info = {
-        'UPLOAD_FOLDER': UPLOAD_FOLDER,
-        'exists': os.path.exists(UPLOAD_FOLDER),
-        'writable': os.access(UPLOAD_FOLDER, os.W_OK),
-        'files': files,
-        'RAILWAY_ENVIRONMENT': os.environ.get('RAILWAY_ENVIRONMENT', '(not set)'),
-        'RAILWAY_PROJECT_ID': os.environ.get('RAILWAY_PROJECT_ID', '(not set)'),
-    }
-    return f'<pre>{json.dumps(info, indent=2)}</pre>'
 
 
 @app.route('/admin/stats')
