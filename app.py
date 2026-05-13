@@ -713,11 +713,10 @@ def admin():
         race_data.append({'race': race, 'interest_count': ni, 'alloc_count': na, 'needs_rerun': needs_rerun, 'spare': spare})
 
     skippers = db.execute('''
-        SELECT s.id, s.name, s.email, s.withdrawal_count,
+        SELECT s.id, s.name, s.email, s.is_admin, s.withdrawal_count,
                (SELECT COUNT(*) FROM race_history WHERE skipper_id=s.id) AS sailed
         FROM skippers s
-        WHERE s.is_admin = 0
-        ORDER BY s.name
+        ORDER BY s.is_admin DESC, s.name
     ''').fetchall()
     deadline_days   = int(get_setting('deadline_days', 3))
     notice_text     = get_setting('notice_text', '')
@@ -725,7 +724,8 @@ def admin():
     db.close()
     return render_template('admin.html', race_data=race_data, skippers=skippers,
                            deadline_days=deadline_days, documents=documents,
-                           notice_text=notice_text)
+                           notice_text=notice_text,
+                           current_skipper_id=session['skipper_id'])
 
 
 @app.route('/admin/race/create', methods=['POST'])
@@ -1124,11 +1124,29 @@ def edit_skipper(skipper_id):
     name     = request.form['name'].strip()
     email    = request.form['email'].strip().lower()
     new_pw   = request.form.get('new_password', '').strip()
+    # An admin cannot demote themselves; the checkbox is ignored for self-edits
+    if skipper_id == session['skipper_id']:
+        is_admin = 1
+    else:
+        is_admin = 1 if request.form.get('is_admin') else 0
+        # Prevent removing admin from the last remaining admin
+        if is_admin == 0:
+            db_check = get_db()
+            admin_count = db_check.execute(
+                'SELECT COUNT(*) FROM skippers WHERE is_admin=1'
+            ).fetchone()[0]
+            target_is_admin = db_check.execute(
+                'SELECT is_admin FROM skippers WHERE id=?', (skipper_id,)
+            ).fetchone()
+            db_check.close()
+            if target_is_admin and target_is_admin['is_admin'] == 1 and admin_count <= 1:
+                flash('Cannot remove admin access — at least one admin must remain.', 'danger')
+                return redirect(url_for('admin'))
     db = get_db()
     try:
         db.execute(
-            'UPDATE skippers SET name=?, email=? WHERE id=? AND is_admin=0',
-            (name, email, skipper_id)
+            'UPDATE skippers SET name=?, email=?, is_admin=? WHERE id=?',
+            (name, email, is_admin, skipper_id)
         )
         if new_pw:
             db.execute('UPDATE skippers SET password_hash=? WHERE id=?',
@@ -1145,12 +1163,22 @@ def edit_skipper(skipper_id):
 @app.route('/admin/skipper/<int:skipper_id>/remove', methods=['POST'])
 @admin_required
 def remove_skipper(skipper_id):
+    if skipper_id == session['skipper_id']:
+        flash('You cannot remove your own account.', 'danger')
+        return redirect(url_for('admin'))
     db = get_db()
-    db.execute('DELETE FROM skippers  WHERE id=? AND is_admin=0', (skipper_id,))
+    target = db.execute('SELECT is_admin FROM skippers WHERE id=?', (skipper_id,)).fetchone()
+    if target and target['is_admin']:
+        admin_count = db.execute('SELECT COUNT(*) FROM skippers WHERE is_admin=1').fetchone()[0]
+        if admin_count <= 1:
+            db.close()
+            flash('Cannot remove the last admin account.', 'danger')
+            return redirect(url_for('admin'))
+    db.execute('DELETE FROM skippers  WHERE id=?', (skipper_id,))
     db.execute('DELETE FROM interests WHERE skipper_id=?', (skipper_id,))
     db.commit()
     db.close()
-    flash('Skipper removed.', 'success')
+    flash('User removed.', 'success')
     return redirect(url_for('admin'))
 
 

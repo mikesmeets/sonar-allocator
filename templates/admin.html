@@ -232,6 +232,9 @@
             <div class="d-flex justify-content-between align-items-center">
               <div>
                 <span class="fw-semibold">{{ sk.name }}</span>
+                {% if sk.is_admin %}
+                  <span class="badge bg-primary ms-1" style="font-size:0.65rem;">admin</span>
+                {% endif %}
                 <small class="text-muted d-block">
                   {{ sk.email }}
                   &nbsp;·&nbsp; {{ sk.sailed }} race{{ 's' if sk.sailed != 1 else '' }}
@@ -249,12 +252,14 @@
                         data-bs-target="#editModal{{ sk.id }}">
                   <i class="bi bi-pencil"></i>
                 </button>
+                {% if sk.id != current_skipper_id %}
                 <form method="post" action="{{ url_for('remove_skipper', skipper_id=sk.id) }}"
-                      onsubmit="return confirm('Remove {{ sk.name }} from the fleet?')">
-                  <button class="btn btn-sm btn-outline-danger" title="Remove skipper">
+                      onsubmit="return confirm('Remove {{ sk.name }}?')">
+                  <button class="btn btn-sm btn-outline-danger" title="Remove user">
                     <i class="bi bi-trash"></i>
                   </button>
                 </form>
+                {% endif %}
               </div>
             </div>
           </div>
@@ -279,6 +284,20 @@
                       <label class="form-label small fw-semibold mb-1">Email</label>
                       <input type="email" name="email" class="form-control form-control-sm"
                              value="{{ sk.email }}" required>
+                    </div>
+                    <div class="mb-3">
+                      <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="is_admin"
+                               id="isAdmin{{ sk.id }}"
+                               {{ 'checked' if sk.is_admin else '' }}
+                               {{ 'disabled' if sk.id == current_skipper_id else '' }}>
+                        <label class="form-check-label small" for="isAdmin{{ sk.id }}">
+                          Admin access
+                          {% if sk.id == current_skipper_id %}
+                            <span class="text-muted fw-normal">(cannot change your own role)</span>
+                          {% endif %}
+                        </label>
+                      </div>
                     </div>
                     <hr class="my-2">
                     <label class="form-label small fw-semibold mb-1">
