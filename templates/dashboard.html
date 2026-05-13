@@ -96,7 +96,10 @@
           <div class="col-12 col-md-3">
             <div class="fw-semibold">
               <i class="bi bi-calendar-event text-muted me-1"></i>
-              {{ rd.race.race_date | fmt_date }}
+              <a href="{{ url_for('race_participants', race_id=rd.race.id) }}"
+                 class="text-decoration-none text-dark">
+                {{ rd.race.race_date | fmt_date }}
+              </a>
             </div>
             {% if rd.race.notes %}
               <small class="text-muted">{{ rd.race.notes }}</small>
@@ -124,8 +127,11 @@
               </span>
             {% endif %}
             <div class="mt-1 d-flex gap-2 flex-wrap">
-              <small class="text-muted">
-                <i class="bi bi-people me-1"></i>{{ rd.interest_count }} interested
+              <small>
+                <a href="{{ url_for('race_participants', race_id=rd.race.id) }}"
+                   class="text-muted text-decoration-none">
+                  <i class="bi bi-people me-1"></i>{{ rd.interest_count }} interested
+                </a>
               </small>
               <small class="text-muted">
                 <i class="bi bi-sailboat me-1"></i>{{ rd.total_boats }} boat{{ 's' if rd.total_boats != 1 else '' }}

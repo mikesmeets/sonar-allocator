@@ -647,6 +647,37 @@ def dashboard():
                            notice_text=notice_text)
 
 
+@app.route('/race/<int:race_id>/participants')
+@login_required
+def race_participants(race_id):
+    db = get_db()
+    race = db.execute('SELECT * FROM races WHERE id=?', (race_id,)).fetchone()
+    if not race:
+        flash('Raceday not found.', 'danger')
+        return redirect(url_for('dashboard'))
+
+    # Fetch everyone who expressed interest, with their allocation (if any)
+    participants = db.execute('''
+        SELECT s.name,
+               a.boat_number,
+               ao.priority_rank
+        FROM interests i
+        JOIN skippers s ON s.id = i.skipper_id
+        LEFT JOIN allocations a ON a.race_id = i.race_id AND a.skipper_id = i.skipper_id
+        LEFT JOIN allocation_order ao ON ao.race_id = i.race_id AND ao.skipper_id = i.skipper_id
+        WHERE i.race_id = ?
+        ORDER BY ao.priority_rank ASC NULLS LAST, s.name ASC
+    ''', (race_id,)).fetchall()
+
+    total_boats = len(parse_available_boats(race['available_boats']))
+    db.close()
+
+    return render_template('race_participants.html',
+                           race=race,
+                           participants=participants,
+                           total_boats=total_boats)
+
+
 @app.route('/interest/<int:race_id>/submit', methods=['POST'])
 @login_required
 def submit_interest(race_id):

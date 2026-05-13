@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h3 class="page-title mb-0">
+      <i class="bi bi-calendar-event me-2"></i>{{ race.race_date | fmt_date }}
+    </h3>
+    {% if race.notes %}
+      <p class="text-muted mb-0 mt-1">{{ race.notes }}</p>
+    {% endif %}
+  </div>
+  <a href="{{ url_for('dashboard') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i> Back
+  </a>
+</div>
+
+<div class="row g-4">
+
+  {# ── Participants ── #}
+  <div class="col-md-7">
+    <div class="card">
+      <div class="card-header navy d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-people me-2"></i>Signed Up</span>
+        <span class="badge bg-light text-dark">{{ participants | length }} / {{ total_boats }}</span>
+      </div>
+      {% if participants %}
+        <div class="list-group list-group-flush">
+          {% for p in participants %}
+            <div class="list-group-item d-flex align-items-center gap-3 py-2 px-3">
+              {% if race.status == 'allocated' and p.boat_number %}
+                <span class="boat-badge flex-shrink-0">{{ p.boat_number }}</span>
+              {% elif race.status in ('prioritised', 'allocated') and p.priority_rank %}
+                <span class="d-inline-flex align-items-center justify-content-center flex-shrink-0
+                             rounded-circle border fw-semibold text-muted"
+                      style="width:32px;height:32px;font-size:0.8rem;">
+                  {{ p.priority_rank }}
+                </span>
+              {% else %}
+                <span class="d-inline-flex align-items-center justify-content-center flex-shrink-0
+                             rounded-circle bg-light text-muted"
+                      style="width:32px;height:32px;">
+                  <i class="bi bi-person"></i>
+                </span>
+              {% endif %}
+
+              <span class="fw-semibold flex-grow-1">{{ p.name }}</span>
+
+              {% if race.status == 'allocated' %}
+                {% if p.boat_number %}
+                  <span class="badge bg-success">Allocated</span>
+                {% else %}
+                  <span class="badge bg-secondary">Waitlist</span>
+                {% endif %}
+              {% elif race.status == 'prioritised' %}
+                {% if p.priority_rank and p.priority_rank <= total_boats %}
+                  <span class="badge bg-success">In</span>
+                {% elif p.priority_rank %}
+                  <span class="badge bg-secondary">Waitlist</span>
+                {% endif %}
+              {% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="card-body text-muted text-center py-4">
+          <i class="bi bi-inbox fs-3 d-block mb-2 opacity-50"></i>
+          No one has signed up yet.
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ── Race info ── #}
+  <div class="col-md-5">
+    <div class="card">
+      <div class="card-header navy"><i class="bi bi-info-circle me-2"></i>Race Info</div>
+      <div class="card-body">
+        <ul class="list-unstyled mb-0 small">
+          <li class="mb-2 d-flex justify-content-between">
+            <span class="text-muted">Date</span>
+            <span class="fw-semibold">{{ race.race_date | fmt_date }}</span>
+          </li>
+          <li class="mb-2 d-flex justify-content-between">
+            <span class="text-muted">Boats available</span>
+            <span class="fw-semibold">{{ total_boats }}</span>
+          </li>
+          <li class="mb-2 d-flex justify-content-between">
+            <span class="text-muted">Signed up</span>
+            <span class="fw-semibold">{{ participants | length }}</span>
+          </li>
+          <li class="mb-2 d-flex justify-content-between">
+            <span class="text-muted">Status</span>
+            <span>
+              {% if race.status == 'scheduled' %}
+                <span class="badge bg-warning text-dark">Scheduled</span>
+              {% elif race.status == 'open' %}
+                <span class="badge bg-success">Open</span>
+              {% elif race.status == 'prioritised' %}
+                <span class="badge bg-info text-dark">Prioritised</span>
+              {% elif race.status == 'allocated' %}
+                <span class="badge bg-primary">Allocated</span>
+              {% else %}
+                <span class="badge bg-secondary">Completed</span>
+              {% endif %}
+            </span>
+          </li>
+          {% if race.status == 'open' %}
+            <li class="d-flex justify-content-between">
+              <span class="text-muted">Deadline</span>
+              <span class="fw-semibold">{{ race.deadline | fmt_date }}</span>
+            </li>
+          {% endif %}
+        </ul>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
