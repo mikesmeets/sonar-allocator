@@ -429,8 +429,12 @@ function setAllBoats(checked) {
   const table   = document.getElementById('racesTable');
   if (!table) return;
   const tbody   = table.querySelector('tbody');
-  let sortCol   = null;
-  let sortAsc   = true;
+  let sortCol   = 0;      // Date column
+  let sortAsc   = false;  // newest first
+
+  // Reflect initial sort state in the header icon
+  const initTh = table.querySelector('th.sortable[data-col="0"] .sort-icon');
+  if (initTh) initTh.textContent = '↓';
 
   table.querySelectorAll('th.sortable').forEach(th => {
     th.style.cursor = 'pointer';
