@@ -2,6 +2,7 @@ import os
 import uuid
 import random
 import hashlib
+import secrets
 import sqlite3
 from datetime import datetime, timedelta
 from functools import wraps
@@ -154,6 +155,15 @@ def init_db():
             success   INTEGER NOT NULL DEFAULT 0,
             error_msg TEXT,
             sent_at   TEXT NOT NULL
+        )
+    ''')
+    db.execute(f'''
+        CREATE TABLE IF NOT EXISTS password_reset_tokens (
+            id         {pk},
+            skipper_id INTEGER NOT NULL,
+            token      TEXT NOT NULL UNIQUE,
+            expires_at TEXT NOT NULL,
+            used       INTEGER NOT NULL DEFAULT 0
         )
     ''')
 
@@ -476,6 +486,73 @@ def signup():
 def logout():
     session.clear()
     return redirect(url_for('login'))
+
+
+@app.route('/forgot-password', methods=['GET', 'POST'])
+def forgot_password():
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip().lower()
+        db = get_db()
+        skipper = db.execute(
+            'SELECT id, name, email FROM skippers WHERE LOWER(email)=?', (email,)
+        ).fetchone()
+        if skipper:
+            token      = secrets.token_urlsafe(32)
+            expires_at = (datetime.now() + timedelta(hours=1)).isoformat()
+            db.execute(
+                'INSERT INTO password_reset_tokens (skipper_id, token, expires_at) VALUES (?,?,?)',
+                (skipper['id'], token, expires_at)
+            )
+            db.commit()
+            reset_url = url_for('reset_password', token=token, _external=True)
+            from email_utils import send_email
+            send_email(
+                skipper['email'],
+                'Sonar Fleet — password reset',
+                f"Hi {skipper['name']},\n\n"
+                f"Click the link below to reset your password. It expires in 1 hour.\n\n"
+                f"{reset_url}\n\n"
+                f"If you didn't request this, you can ignore this email."
+            )
+        db.close()
+        # Always show the same message to avoid revealing whether an email is registered
+        flash('If that email is registered you\'ll receive a reset link shortly.', 'info')
+        return redirect(url_for('login'))
+    return render_template('forgot_password.html')
+
+
+@app.route('/reset-password/<token>', methods=['GET', 'POST'])
+def reset_password(token):
+    db = get_db()
+    row = db.execute(
+        'SELECT * FROM password_reset_tokens WHERE token=? AND used=0', (token,)
+    ).fetchone()
+    if not row or datetime.now().isoformat() > row['expires_at']:
+        db.close()
+        flash('This reset link is invalid or has expired. Please request a new one.', 'danger')
+        return redirect(url_for('forgot_password'))
+
+    if request.method == 'POST':
+        pw  = request.form.get('password', '')
+        pw2 = request.form.get('confirm_password', '')
+        if len(pw) < 6:
+            db.close()
+            flash('Password must be at least 6 characters.', 'danger')
+            return render_template('reset_password.html', token=token)
+        if pw != pw2:
+            db.close()
+            flash('Passwords do not match.', 'danger')
+            return render_template('reset_password.html', token=token)
+        db.execute('UPDATE skippers SET password_hash=? WHERE id=?',
+                   (hash_pw(pw), row['skipper_id']))
+        db.execute('UPDATE password_reset_tokens SET used=1 WHERE id=?', (row['id'],))
+        db.commit()
+        db.close()
+        flash('Password updated — please sign in.', 'success')
+        return redirect(url_for('login'))
+
+    db.close()
+    return render_template('reset_password.html', token=token)
 
 
 # ── skipper routes ────────────────────────────────────────────────────────────
