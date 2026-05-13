@@ -129,9 +129,9 @@
           <tbody>
             {% for rd in race_data %}
               <tr>
-                <td class="fw-semibold">{{ rd.race.race_date | fmt_date }}</td>
+                <td class="fw-semibold" data-sort="{{ rd.race.race_date[:10] }}">{{ rd.race.race_date | fmt_date }}</td>
                 <td class="text-muted small">{{ rd.race.notes or '—' }}</td>
-                <td class="small">{{ rd.race.deadline | fmt_date }}</td>
+                <td class="small" data-sort="{{ rd.race.deadline[:10] }}">{{ rd.race.deadline | fmt_date }}</td>
                 <td>
                   {% if rd.race.status == 'scheduled' %}
                     <span class="badge bg-warning text-dark">scheduled</span>
@@ -450,8 +450,10 @@ function setAllBoats(checked) {
       // Sort rows
       const rows = Array.from(tbody.querySelectorAll('tr'));
       rows.sort((a, b) => {
-        const aVal = a.cells[col]?.textContent.trim() ?? '';
-        const bVal = b.cells[col]?.textContent.trim() ?? '';
+        const aCell = a.cells[col];
+        const bCell = b.cells[col];
+        const aVal = (aCell?.dataset.sort ?? aCell?.textContent.trim()) ?? '';
+        const bVal = (bCell?.dataset.sort ?? bCell?.textContent.trim()) ?? '';
         const aNum = Number(aVal);
         const bNum = Number(bVal);
         let cmp;
