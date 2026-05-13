@@ -146,6 +146,16 @@ def init_db():
             uploaded_at         TEXT NOT NULL
         )
     ''')
+    db.execute(f'''
+        CREATE TABLE IF NOT EXISTS email_log (
+            id        {pk},
+            to_addr   TEXT NOT NULL,
+            subject   TEXT,
+            success   INTEGER NOT NULL DEFAULT 0,
+            error_msg TEXT,
+            sent_at   TEXT NOT NULL
+        )
+    ''')
 
     if USE_POSTGRES:
         db.execute("INSERT INTO settings (key, value) VALUES ('deadline_days', '3') ON CONFLICT (key) DO NOTHING")
@@ -1207,11 +1217,21 @@ def change_admin_password():
 def settings_page():
     deadline_days = int(get_setting('deadline_days', 3))
     notice_text   = get_setting('notice_text', '')
+    smtp_config = {
+        'host':         get_setting('smtp_host', ''),
+        'port':         get_setting('smtp_port', '587'),
+        'encryption':   get_setting('smtp_encryption', 'tls'),
+        'username':     get_setting('smtp_username', ''),
+        'from_name':    get_setting('smtp_from_name', 'Sonar Fleet'),
+        'password_set': bool(get_setting('smtp_password', '')),
+    }
     db = get_db()
-    documents = db.execute('SELECT * FROM documents ORDER BY uploaded_at DESC').fetchall()
+    documents  = db.execute('SELECT * FROM documents ORDER BY uploaded_at DESC').fetchall()
+    email_logs = db.execute('SELECT * FROM email_log ORDER BY sent_at DESC LIMIT 50').fetchall()
     db.close()
     return render_template('settings.html', deadline_days=deadline_days,
-                           notice_text=notice_text, documents=documents)
+                           notice_text=notice_text, documents=documents,
+                           smtp_config=smtp_config, email_logs=email_logs)
 
 
 @app.route('/admin/settings', methods=['POST'])
@@ -1232,6 +1252,45 @@ def save_settings():
     db.commit()
     db.close()
     flash('Settings saved.', 'success')
+    return redirect(url_for('settings_page'))
+
+
+@app.route('/admin/settings/smtp', methods=['POST'])
+@admin_required
+def save_smtp_settings():
+    db = get_db()
+    upsert = ("INSERT INTO settings (key, value) VALUES (?, ?) "
+              "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
+              if USE_POSTGRES else
+              "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)")
+    for key in ('smtp_host', 'smtp_port', 'smtp_encryption', 'smtp_username', 'smtp_from_name'):
+        db.execute(upsert, (key, request.form.get(key, '').strip()))
+    new_pw = request.form.get('smtp_password', '').strip()
+    if new_pw:
+        db.execute(upsert, ('smtp_password', new_pw))
+    db.commit()
+    db.close()
+    flash('Email settings saved.', 'success')
+    return redirect(url_for('settings_page'))
+
+
+@app.route('/admin/settings/smtp/test', methods=['POST'])
+@admin_required
+def test_email():
+    from email_utils import send_email
+    to_addr = request.form.get('test_to', '').strip()
+    if not to_addr:
+        flash('Enter a recipient address.', 'danger')
+        return redirect(url_for('settings_page'))
+    ok, err = send_email(
+        to_addr,
+        'Sonar Fleet Allocator — test email',
+        'This is a test email from your Sonar Fleet Allocator app.\n\nIf you received this, SMTP is configured correctly.'
+    )
+    if ok:
+        flash(f'Test email sent to {to_addr}.', 'success')
+    else:
+        flash(f'Failed to send: {err}', 'danger')
     return redirect(url_for('settings_page'))
 
 
