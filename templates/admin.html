@@ -331,7 +331,7 @@
 // ── Admin calendar ──────────────────────────────────────────────────────────
 const _adminRaces = [
   {% for rd in race_data %}
-  { date: {{ rd.race.race_date | tojson }}, status: {{ rd.race.status | tojson }}, id: {{ rd.race.id }} },
+  { date: {{ rd.race.race_date | tojson }}, status: {{ rd.race.status | tojson }}, id: {{ rd.race.id }}, interest_count: {{ rd.interest_count }} },
   {% endfor %}
 ];
 let _adminCalInited = false;

@@ -262,8 +262,11 @@ function initCalendar(containerId, races, mode) {
         cell += mode === 'admin'
           ? `<a href="/admin/race/${race.id}" style="display:block;${badge};text-decoration:none;" title="${label}">${label}</a>`
           : `<div style="${badge}" title="${label}">${label}</div>`;
+        if (race.interest_count > 0) {
+          cell += `<div style="text-align:center;font-size:0.55rem;color:#666;margin-top:2px;">${race.interest_count} interested</div>`;
+        }
       }
-      h += `<div style="border-radius:6px;padding:4px 2px;min-height:46px;background:${bg};">${cell}</div>`;
+      h += `<div style="border-radius:6px;padding:4px 2px;min-height:56px;background:${bg};">${cell}</div>`;
     }
     h += '</div>';
     el.innerHTML = h;

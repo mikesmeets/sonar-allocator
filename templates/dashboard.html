@@ -296,11 +296,11 @@
 const _skRaces = [
   {% for rd in race_data %}
   { date: {{ rd.race.race_date | tojson }}, status: {{ rd.race.status | tojson }}, id: {{ rd.race.id }},
-    boat: {{ rd.boat | tojson }}, submitted: {{ rd.submitted | tojson }} },
+    boat: {{ rd.boat | tojson }}, submitted: {{ rd.submitted | tojson }}, interest_count: {{ rd.interest_count }} },
   {% endfor %}
   {% for cd in completed_data %}
   { date: {{ cd.race.race_date | tojson }}, status: 'completed', id: {{ cd.race.id }},
-    boat: {{ cd.boat | tojson }}, submitted: {{ (cd.boat is not none) | tojson }} },
+    boat: {{ cd.boat | tojson }}, submitted: {{ (cd.boat is not none) | tojson }}, interest_count: 0 },
   {% endfor %}
 ];
 let _skCalInited = false;
