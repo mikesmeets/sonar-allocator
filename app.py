@@ -636,6 +636,7 @@ def dashboard():
         'SELECT * FROM documents WHERE visible_to_skippers=1 ORDER BY uploaded_at DESC'
     ).fetchall()
     notice_text = get_setting('notice_text', '')
+    si_summary  = get_setting('si_summary', '')
     db.close()
 
     return render_template('dashboard.html',
@@ -644,7 +645,8 @@ def dashboard():
                            sailed=sailed,
                            completed_data=completed_data,
                            documents=documents,
-                           notice_text=notice_text)
+                           notice_text=notice_text,
+                           si_summary=si_summary)
 
 
 @app.route('/race/<int:race_id>/participants')
@@ -1325,6 +1327,7 @@ def change_admin_password():
 def settings_page():
     deadline_days = int(get_setting('deadline_days', 3))
     notice_text   = get_setting('notice_text', '')
+    si_summary    = get_setting('si_summary', '')
     smtp_config = {
         'host':         get_setting('smtp_host', ''),
         'port':         get_setting('smtp_port', '587'),
@@ -1338,8 +1341,9 @@ def settings_page():
     email_logs = db.execute('SELECT * FROM email_log ORDER BY sent_at DESC LIMIT 50').fetchall()
     db.close()
     return render_template('settings.html', deadline_days=deadline_days,
-                           notice_text=notice_text, documents=documents,
-                           smtp_config=smtp_config, email_logs=email_logs)
+                           notice_text=notice_text, si_summary=si_summary,
+                           documents=documents, smtp_config=smtp_config,
+                           email_logs=email_logs)
 
 
 @app.route('/admin/settings', methods=['POST'])
@@ -1348,8 +1352,9 @@ def save_settings():
     deadline_days = request.form.get('deadline_days', '').strip()
     if not deadline_days.isdigit() or int(deadline_days) < 1:
         flash('Deadline must be a positive number of days.', 'danger')
-        return redirect(url_for('admin'))
+        return redirect(url_for('settings_page'))
     notice_text = request.form.get('notice_text', '')
+    si_summary  = request.form.get('si_summary', '')
     db = get_db()
     upsert = ("INSERT INTO settings (key, value) VALUES (?, ?) "
               "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
@@ -1357,6 +1362,7 @@ def save_settings():
               "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)")
     db.execute(upsert, ('deadline_days', deadline_days))
     db.execute(upsert, ('notice_text', notice_text))
+    db.execute(upsert, ('si_summary', si_summary))
     db.commit()
     db.close()
     flash('Settings saved.', 'success')

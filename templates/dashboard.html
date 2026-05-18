@@ -68,6 +68,18 @@
   </div>
 {% endif %}
 
+{# ── SI Summary ── #}
+{% if si_summary %}
+  <div class="card mb-4">
+    <div class="card-header navy">
+      <i class="bi bi-file-text me-2"></i>SI Summary
+    </div>
+    <div class="card-body">
+      <div style="white-space: pre-wrap;" class="small">{{ si_summary }}</div>
+    </div>
+  </div>
+{% endif %}
+
 {# ── Upcoming Racedays ── #}
 <div class="d-flex align-items-center justify-content-between mb-3">
   <h5 class="fw-semibold mb-0">Upcoming Racedays</h5>

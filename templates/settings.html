@@ -10,7 +10,7 @@
 
 <div class="row g-4">
 
-  {# ── Left: Documents ── #}
+  {# ── Left: Documents + SI Summary ── #}
   <div class="col-lg-7">
     <div class="card">
       <div class="card-header navy">
@@ -110,6 +110,27 @@
         <div class="card-body text-muted small text-center py-3">No documents uploaded yet.</div>
       {% endif %}
     </div>
+
+    {# SI Summary #}
+    <div class="card mt-4">
+      <div class="card-header navy">
+        <i class="bi bi-file-text me-2"></i>SI Summary
+      </div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('save_settings') }}">
+          <textarea name="si_summary" class="form-control" rows="8"
+                    placeholder="Paste or type the Sailing Instructions summary here. Shown to sailors on their dashboard.">{{ si_summary }}</textarea>
+          <div class="form-text mb-3">Shown on the sailor dashboard below documents. Leave blank to hide.</div>
+          {# Pass through other settings unchanged #}
+          <input type="hidden" name="notice_text" value="{{ notice_text }}">
+          <input type="hidden" name="deadline_days" value="{{ deadline_days }}">
+          <button type="submit" class="btn btn-navy btn-sm">
+            <i class="bi bi-save me-1"></i>Save SI Summary
+          </button>
+        </form>
+      </div>
+    </div>
+
   </div>
 
   {# ── Right: Settings ── #}
@@ -122,6 +143,7 @@
       </div>
       <div class="card-body">
         <form method="post" action="{{ url_for('save_settings') }}">
+          <input type="hidden" name="si_summary" value="{{ si_summary }}">
           <div class="mb-3">
             <label class="form-label fw-semibold mb-1">Notice for sailors</label>
             <textarea name="notice_text" class="form-control" rows="5"
