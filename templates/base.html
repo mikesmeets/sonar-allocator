@@ -255,19 +255,25 @@ function initCalendar(containerId, races, mode) {
       const race = raceMap[ds];
       const bg   = ds === today ? '#e9ecef' : 'transparent';
 
-      let cell = `<div class="text-center small${ds === today ? ' fw-bold' : ''}">${d}</div>`;
+      let cell = `<div style="font-size:0.7rem;text-align:center;font-weight:${ds === today ? '700' : '400'};">${d}</div>`;
       if (race) {
         const { bg: rb, fg, label } = style(race);
-        const badge = `border-radius:4px;background:${rb};color:${fg};font-size:0.6rem;padding:1px 4px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;`;
-        cell += mode === 'admin'
-          ? `<a href="/admin/race/${race.id}" style="display:block;${badge};text-decoration:none;" title="${label}">${label}</a>`
-          : `<div style="${badge}" title="${label}">${label}</div>`;
-        if (race.interest_count > 0) {
-          cell += `<div style="text-align:center;font-size:0.55rem;color:#666;margin-top:2px;">${race.interest_count} interested</div>`;
+        const pill = `border-radius:4px;background:${rb};color:${fg};font-size:0.6rem;padding:2px 3px;margin-top:2px;`;
+
+        let inner = '';
+        if (race.notes) {
+          inner += `<div style="${pill}font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${race.notes}</div>`;
         }
+        inner += `<div style="${pill}${race.notes ? 'margin-top:1px;' : ''}text-align:center;">${label}</div>`;
+        if (race.interest_count > 0) {
+          inner += `<div style="text-align:center;font-size:0.55rem;color:#555;margin-top:1px;">👥 ${race.interest_count}</div>`;
+        }
+
+        cell += mode === 'admin'
+          ? `<a href="/admin/race/${race.id}" style="display:block;text-decoration:none;">${inner}</a>`
+          : inner;
       }
-      const titleAttr = race && race.notes ? ` title="${race.notes.replace(/"/g, '&quot;')}"` : '';
-      h += `<div${titleAttr} style="border-radius:6px;padding:4px 2px;min-height:56px;background:${bg};">${cell}</div>`;
+      h += `<div style="border-radius:6px;padding:3px 2px;min-height:64px;background:${bg};">${cell}</div>`;
     }
     h += '</div>';
     el.innerHTML = h;
