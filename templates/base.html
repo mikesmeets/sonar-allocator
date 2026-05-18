@@ -233,19 +233,25 @@ function initCalendar(containerId, races, mode) {
   }
 
   function render() {
+    const isMobile = window.innerWidth < 640;
     const first = new Date(year, month, 1);
     const days  = new Date(year, month + 1, 0).getDate();
     const name  = first.toLocaleString('default', { month: 'long' });
     let dow = first.getDay(); // Sun = 0
+
+    // On mobile show single-letter day headers to save space
+    const dayHeaders = isMobile
+      ? ['S','M','T','W','T','F','S']
+      : ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
     let h = `<div class="d-flex align-items-center justify-content-between mb-3">
       <button class="btn btn-sm btn-outline-secondary" id="calPrev"><i class="bi bi-chevron-left"></i></button>
       <span class="fw-semibold">${name} ${year}</span>
       <button class="btn btn-sm btn-outline-secondary" id="calNext"><i class="bi bi-chevron-right"></i></button>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;">`;
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:${isMobile ? 2 : 3}px;">`;
 
-    ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(d => {
+    dayHeaders.forEach(d => {
       h += `<div class="text-center text-muted small fw-semibold py-1">${d}</div>`;
     });
     for (let i = 0; i < dow; i++) h += '<div></div>';
@@ -256,31 +262,49 @@ function initCalendar(containerId, races, mode) {
       const bg   = ds === today ? '#e9ecef' : 'transparent';
 
       let cell = `<div style="font-size:0.7rem;text-align:center;font-weight:${ds === today ? '700' : '400'};">${d}</div>`;
+
       if (race) {
         const { bg: rb, fg, label } = style(race);
-        const bubble = `border-radius:5px;background:${rb};color:${fg};font-size:0.6rem;padding:4px 3px;margin-top:3px;text-align:center;`;
 
-        let lines = '';
-        if (race.notes) {
-          lines += `<div style="font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${race.notes}</div>`;
+        if (isMobile) {
+          // Compact dot marker — tappable on admin
+          const dot = `<div style="width:10px;height:10px;border-radius:50%;background:${rb};margin:4px auto 0;" title="${label}${race.notes ? ' — ' + race.notes : ''}"></div>`;
+          cell += mode === 'admin'
+            ? `<a href="/admin/race/${race.id}" style="display:block;text-decoration:none;">${dot}</a>`
+            : dot;
+        } else {
+          // Full bubble with notes, status, interest count
+          const bubble = `border-radius:5px;background:${rb};color:${fg};font-size:0.6rem;padding:4px 3px;margin-top:3px;text-align:center;`;
+          let lines = '';
+          if (race.notes) {
+            lines += `<div style="font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${race.notes}</div>`;
+          }
+          lines += `<div style="${race.notes ? 'opacity:0.85;' : ''}">${label}</div>`;
+          if (race.interest_count > 0) {
+            lines += `<div style="opacity:0.85;margin-top:1px;">👥 ${race.interest_count}</div>`;
+          }
+          const bubble_html = `<div style="${bubble}">${lines}</div>`;
+          cell += mode === 'admin'
+            ? `<a href="/admin/race/${race.id}" style="display:block;text-decoration:none;">${bubble_html}</a>`
+            : bubble_html;
         }
-        lines += `<div style="${race.notes ? 'opacity:0.85;' : ''}">${label}</div>`;
-        if (race.interest_count > 0) {
-          lines += `<div style="opacity:0.85;margin-top:1px;">👥 ${race.interest_count}</div>`;
-        }
-
-        const bubble_html = `<div style="${bubble}">${lines}</div>`;
-        cell += mode === 'admin'
-          ? `<a href="/admin/race/${race.id}" style="display:block;text-decoration:none;">${bubble_html}</a>`
-          : bubble_html;
       }
-      h += `<div style="border-radius:6px;padding:3px 2px;min-height:64px;background:${bg};">${cell}</div>`;
+
+      const minH = isMobile ? '36px' : '64px';
+      h += `<div style="border-radius:6px;padding:3px 2px;min-height:${minH};background:${bg};">${cell}</div>`;
     }
     h += '</div>';
     el.innerHTML = h;
     el.querySelector('#calPrev').onclick = () => { month--; if (month < 0)  { month = 11; year--; } render(); };
     el.querySelector('#calNext').onclick = () => { month++; if (month > 11) { month = 0;  year++; } render(); };
   }
+
+  // Re-render on orientation change / resize
+  let _calResizeTimer;
+  window.addEventListener('resize', () => {
+    clearTimeout(_calResizeTimer);
+    _calResizeTimer = setTimeout(render, 120);
+  });
   render();
 }
 </script>
