@@ -266,7 +266,8 @@ function initCalendar(containerId, races, mode) {
           cell += `<div style="text-align:center;font-size:0.55rem;color:#666;margin-top:2px;">${race.interest_count} interested</div>`;
         }
       }
-      h += `<div style="border-radius:6px;padding:4px 2px;min-height:56px;background:${bg};">${cell}</div>`;
+      const titleAttr = race && race.notes ? ` title="${race.notes.replace(/"/g, '&quot;')}"` : '';
+      h += `<div${titleAttr} style="border-radius:6px;padding:4px 2px;min-height:56px;background:${bg};">${cell}</div>`;
     }
     h += '</div>';
     el.innerHTML = h;
