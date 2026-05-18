@@ -258,20 +258,21 @@ function initCalendar(containerId, races, mode) {
       let cell = `<div style="font-size:0.7rem;text-align:center;font-weight:${ds === today ? '700' : '400'};">${d}</div>`;
       if (race) {
         const { bg: rb, fg, label } = style(race);
-        const pill = `border-radius:4px;background:${rb};color:${fg};font-size:0.6rem;padding:2px 3px;margin-top:2px;`;
+        const bubble = `border-radius:5px;background:${rb};color:${fg};font-size:0.6rem;padding:4px 3px;margin-top:3px;text-align:center;`;
 
-        let inner = '';
+        let lines = '';
         if (race.notes) {
-          inner += `<div style="${pill}font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${race.notes}</div>`;
+          lines += `<div style="font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${race.notes}</div>`;
         }
-        inner += `<div style="${pill}${race.notes ? 'margin-top:1px;' : ''}text-align:center;">${label}</div>`;
+        lines += `<div style="${race.notes ? 'opacity:0.85;' : ''}">${label}</div>`;
         if (race.interest_count > 0) {
-          inner += `<div style="text-align:center;font-size:0.55rem;color:#555;margin-top:1px;">👥 ${race.interest_count}</div>`;
+          lines += `<div style="opacity:0.85;margin-top:1px;">👥 ${race.interest_count}</div>`;
         }
 
+        const bubble_html = `<div style="${bubble}">${lines}</div>`;
         cell += mode === 'admin'
-          ? `<a href="/admin/race/${race.id}" style="display:block;text-decoration:none;">${inner}</a>`
-          : inner;
+          ? `<a href="/admin/race/${race.id}" style="display:block;text-decoration:none;">${bubble_html}</a>`
+          : bubble_html;
       }
       h += `<div style="border-radius:6px;padding:3px 2px;min-height:64px;background:${bg};">${cell}</div>`;
     }
